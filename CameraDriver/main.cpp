@@ -17,8 +17,6 @@ void showImg() {
     cv::destroyAllWindows();
 }
 
-//cv::VideoWriter 
-
 int main() {
     bool ll = true;
     if (ll) {
