@@ -12,111 +12,104 @@ DWORD WINAPI FrameUpdateLoopCall(LPVOID lpParam) {
     return llcap->FrameUpdateLoop();
 }
 
-LowLatencyCapture::LowLatencyCapture() {
+void LowLatencyCapture::Init() {
     frameReady = CreateSemaphore(NULL, 0, 1, NULL);
-
-    waitingForFrame = CreateSemaphore(NULL, 0, 1, NULL);
-
-    frameLock = CreateMutex(NULL, true, NULL);
-
-    capture = cv::VideoCapture(0);
-
-    namedWindow(windowName, WINDOW_AUTOSIZE);
-    cv::moveWindow(windowName, 0, 45);
+    frameLock = CreateMutex(NULL, false, NULL);
     captureThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)FrameUpdateLoopCall, this, NULL, NULL);
-
-    cv::Mat frame;
-    for (int i = 0; i < 1000; i++) {
-        cv::waitKey(20);
-        GetNewFrame(frame);
-        cv::imshow(windowName, frame);
-    }
 }
+
+// for webcam testing
+LowLatencyCapture::LowLatencyCapture() {
+    capture = cv::VideoCapture(0);
+    Init();
+}
+
+// for rtsp stream testing
+// LowLatencyCapture::LowLatencyCapture(const string& address) {
+//     capture = cv::VideoCapture(address);
+//     Init();
+// }
 
 LowLatencyCapture::~LowLatencyCapture() {
     CloseHandle(frameReady);
-    CloseHandle(waitingForFrame);
     CloseHandle(frameLock);
     WaitForSingleObject(captureThread, INFINITE);
     CloseHandle(captureThread);
-    cv::destroyAllWindows();
 }
 
 bool LowLatencyCapture::GetNewFrame(cv::OutputArray image) {
-    while (ReleaseSemaphore(waitingForFrame, 1, NULL) == 0) {
-        cout << "Failed to release waitingForFrame: " << GetLastError() << endl;
-        WaitForSingleObject(waitingForFrame, 0);
-        //return false;
-    }
-
+    // wait for a new frame to be ready
     DWORD waitResult = WaitForSingleObject(frameReady, INFINITE);
-
     if (waitResult != WAIT_OBJECT_0) {
         cout << "Failed to wait for frameReady: " << GetLastError() << endl;
         return false;
     }
 
+    // lock the frame object
+    waitResult = WaitForSingleObject(frameLock, INFINITE);
+    if (waitResult != WAIT_OBJECT_0) {
+        cout << "Failed to wait for frameLock: " << GetLastError() << endl;
+        return false;
+    }
+
     currentFrame.copyTo(image);
 
-    while (ReleaseSemaphore(waitingForFrame, 1, NULL) == 0) {
-        cout << "Failed to release waitingForFrame: " << GetLastError() << endl;
-        WaitForSingleObject(waitingForFrame, 0);
-        //return false;
-    }
+    // release the lock
+    ReleaseMutex(frameLock);
 
     return true;
 }
 
 DWORD WINAPI LowLatencyCapture::FrameUpdateLoop() {
     cv::Mat tempFrame;
+    vector<cv::Mat> rgb(3);
     DWORD waitResult;
 
-    while(!capture.read(currentFrame));
-    frameUpdated = true;
-    ReleaseMutex(frameLock);
-    cout << "success" << endl;
+    while (!capture.read(currentFrame));
+    ReleaseSemaphore(frameReady, 1, NULL);
 
     while (1) {
-        cout << "loop" << endl;
-        waitResult = WaitForSingleObject(frameLock, INFINITY);
+        while (!capture.read(tempFrame));
 
-        switch (waitResult) {
-        case WAIT_OBJECT_0:
-            if (capture.read(tempFrame)) {
-                if (!frameUpdated) {
-                    frameUpdated = (cv::countNonZero(tempFrame != currentFrame) > 0);
-                }
+        cv::split((tempFrame != currentFrame), rgb);
 
-                if (frameUpdated) {
-                    tempFrame.copyTo(currentFrame);
-                }
+        if (cv::countNonZero(rgb[0]) + cv::countNonZero(rgb[1]) + cv::countNonZero(rgb[2]) > 0) {
+            waitResult = WaitForSingleObject(frameLock, INFINITY);
+
+            switch (waitResult) {
+            case WAIT_OBJECT_0:
+                tempFrame.copyTo(currentFrame);
+                ReleaseSemaphore(frameReady, 1, NULL);
+                break;
+
+            default:
+                return false;
             }
-            break;
 
-        case WAIT_TIMEOUT:
-            if (frameUpdated) {
-                if (ReleaseSemaphore(frameReady, 1, NULL) == 0) {
-                    cout << "Failed to release frameReady: " << GetLastError() << endl;
-                    return false;
-                }
-
-                waitResult = WaitForSingleObject(waitingForFrame, INFINITY);
-
-                if (waitResult != WAIT_OBJECT_0) {
-                    cout << "Failed to wait for waitingForFrame: " << waitResult << endl;
-                    return false;
-                }
-
-                frameUpdated = false;
-            }
-            break;
-
-        default:
-            cout << "Failed to wait for waitingForFrame" << endl;
-            return false;
+            ReleaseMutex(frameLock);
         }
-
-        ReleaseMutex(frameLock);
     }
     return true;
+}
+
+void LowLatencyCapture::Test() {
+    cv::Mat frame;
+
+    namedWindow(windowName, WINDOW_AUTOSIZE);
+    cv::moveWindow(windowName, 0, 45);
+
+    // capture & display 1000 frames = 33 seconds @ 30 fps
+    for (int i = 0; i < 1000; i++) {
+        cv::waitKey(1);// required to give the display window rendering time
+        if (!GetNewFrame(frame)) {
+            cout << "This should never fail under webcam test. Something is wrong." << endl;
+            cv::waitKey(0);
+            cv::destroyAllWindows();
+            return;
+        }
+        cv::imshow(windowName, frame);
+    }
+
+    cv::waitKey(0);
+    cv::destroyAllWindows();
 }

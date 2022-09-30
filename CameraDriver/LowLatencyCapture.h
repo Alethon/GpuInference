@@ -15,17 +15,30 @@ using namespace cv;
 class LowLatencyCapture {
 public:
 	LowLatencyCapture();
+	// LowLatencyCapture(const string&);
 	~LowLatencyCapture();
 	bool GetNewFrame(cv::OutputArray);
 	DWORD WINAPI FrameUpdateLoop();
+	void Test();
+
 protected:
-	const std::string& windowName = "First OpenCV Application";
+	void Init();
 	cv::VideoCapture capture;
-	bool frameUpdated;
 	cv::Mat currentFrame;
-	// errors because semaphore resources are being released and waited by different threads
-	HANDLE waitingForFrame;// semaphore
 	HANDLE frameReady;// semaphore
 	HANDLE frameLock;// mutex
+	HANDLE captureThread;
+
+private:
+	const std::string& windowName = "LowLatencyCapture Test";
+};
+
+class Hi {
+public:
+	Hi() {}
+	int GetHi() { return 1; }
+	int SayHi() { return GetHi(); }
+private:
+	void test() { return; }
 	HANDLE captureThread;
 };
