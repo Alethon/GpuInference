@@ -32,13 +32,3 @@ protected:
 private:
 	const std::string& windowName = "LowLatencyCapture Test";
 };
-
-class Hi {
-public:
-	Hi() {}
-	int GetHi() { return 1; }
-	int SayHi() { return GetHi(); }
-private:
-	void test() { return; }
-	HANDLE captureThread;
-};

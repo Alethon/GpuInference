@@ -120,6 +120,9 @@
       <AdditionalLibraryDirectories>C:\Program Files %28x86%29\libraries\opencv\build\x64\vc15\lib;C:\Program Files\Python310\libs;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>opencv_world460d.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy "C:\Program Files (x86)\libraries\opencv\build\x64\vc15\bin\opencv_world460d.dll" "$(SolutionDir)$(Platform)\$(Configuration)\" /Y</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -139,6 +142,9 @@
       <AdditionalLibraryDirectories>C:\Program Files %28x86%29\libraries\opencv\build\x64\vc15\lib;C:\Program Files\Python310\libs;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>opencv_world460.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy "C:\Program Files (x86)\libraries\opencv\build\x64\vc15\bin\opencv_world460.dll" "$(SolutionDir)$(Platform)\$(Configuration)\" /Y</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="LowLatencyCapture.cpp" />
