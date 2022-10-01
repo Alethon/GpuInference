@@ -25,10 +25,10 @@ LowLatencyCapture::LowLatencyCapture() {
 }
 
 // for rtsp stream testing
-// LowLatencyCapture::LowLatencyCapture(const string& address) {
-//     capture = cv::VideoCapture(address);
-//     Init();
-// }
+LowLatencyCapture::LowLatencyCapture(const string& address) {
+    capture = cv::VideoCapture(address);
+    Init();
+}
 
 LowLatencyCapture::~LowLatencyCapture() {
     CloseHandle(frameReady);
@@ -92,14 +92,14 @@ DWORD WINAPI LowLatencyCapture::FrameUpdateLoop() {
     return true;
 }
 
-void LowLatencyCapture::Test() {
+void LowLatencyCapture::Test(int frameCount) {
     cv::Mat frame;
 
     namedWindow(windowName, WINDOW_AUTOSIZE);
     cv::moveWindow(windowName, 0, 45);
 
-    // capture & display 1000 frames = 33 seconds @ 30 fps
-    for (int i = 0; i < 1000; i++) {
+    // display frames
+    for (int i = 0; i < frameCount; i++) {
         cv::waitKey(1);// required to give the display window rendering time
         if (!GetNewFrame(frame)) {
             cout << "This should never fail under webcam test. Something is wrong." << endl;

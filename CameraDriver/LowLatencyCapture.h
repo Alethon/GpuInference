@@ -15,11 +15,11 @@ using namespace cv;
 class LowLatencyCapture {
 public:
 	LowLatencyCapture();
-	// LowLatencyCapture(const string&);
+	LowLatencyCapture(const string&);
 	~LowLatencyCapture();
 	bool GetNewFrame(cv::OutputArray);
 	DWORD WINAPI FrameUpdateLoop();
-	void Test();
+	void Test(int);
 
 protected:
 	void Init();
