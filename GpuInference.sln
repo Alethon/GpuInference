@@ -7,8 +7,6 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CameraDriver", "CameraDrive
 EndProject
 Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "DriverTest", "DriverTest\DriverTest.pyproj", "{E788BB17-D381-45AF-9304-2DE96BD90EE6}"
 EndProject
-Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "YOLO", "YOLO\YOLO.pyproj", "{C0C30B0C-F0C9-4A21-8229-3FA5988A914A}"
-EndProject
 Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "ObjectRecognitionTraining", "ObjectRecognitionTraining\ObjectRecognitionTraining.pyproj", "{F8297747-9D50-44F0-9584-9E026A582F03}"
 EndProject
 Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "ObjectRecognition", "ObjectRecognition\ObjectRecognition.pyproj", "{CF15AE9D-B995-4B39-A6B7-052654AA8351}"
@@ -43,12 +41,6 @@ Global
 		{E788BB17-D381-45AF-9304-2DE96BD90EE6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E788BB17-D381-45AF-9304-2DE96BD90EE6}.Release|x64.ActiveCfg = Release|Any CPU
 		{E788BB17-D381-45AF-9304-2DE96BD90EE6}.Release|x86.ActiveCfg = Release|Any CPU
-		{C0C30B0C-F0C9-4A21-8229-3FA5988A914A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{C0C30B0C-F0C9-4A21-8229-3FA5988A914A}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{C0C30B0C-F0C9-4A21-8229-3FA5988A914A}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{C0C30B0C-F0C9-4A21-8229-3FA5988A914A}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{C0C30B0C-F0C9-4A21-8229-3FA5988A914A}.Release|x64.ActiveCfg = Release|Any CPU
-		{C0C30B0C-F0C9-4A21-8229-3FA5988A914A}.Release|x86.ActiveCfg = Release|Any CPU
 		{F8297747-9D50-44F0-9584-9E026A582F03}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{F8297747-9D50-44F0-9584-9E026A582F03}.Debug|x64.ActiveCfg = Debug|Any CPU
 		{F8297747-9D50-44F0-9584-9E026A582F03}.Debug|x86.ActiveCfg = Debug|Any CPU
