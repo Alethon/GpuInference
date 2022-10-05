@@ -2,16 +2,15 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>c0c30b0c-f0c9-4a21-8229-3fa5988a914a</ProjectGuid>
-    <ProjectHome>
-    </ProjectHome>
-    <StartupFile>YOLO.py</StartupFile>
+    <ProjectGuid>cf15ae9d-b995-4b39-a6b7-052654aa8351</ProjectGuid>
+    <ProjectHome>.</ProjectHome>
+    <StartupFile>ObjectRecognition.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
-    <Name>YOLO</Name>
-    <RootNamespace>YOLO</RootNamespace>
+    <Name>ObjectRecognition</Name>
+    <RootNamespace>ObjectRecognition</RootNamespace>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -22,11 +21,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="ConvBn2d.py" />
-    <Compile Include="DenseBlocks.py" />
-    <Compile Include="ResBlocks.py" />
-    <Compile Include="ResLayers.py" />
-    <Compile Include="YOLO.py" />
+    <Compile Include="ObjectRecognition.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
