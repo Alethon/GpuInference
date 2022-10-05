@@ -23,6 +23,13 @@
   <ItemGroup>
     <Compile Include="VideoInference.py" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ObjectRecognition\ObjectRecognition.pyproj">
+      <Name>ObjectRecognition</Name>
+      <Project>{cf15ae9d-b995-4b39-a6b7-052654aa8351}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
        Visual Studio and specify your pre- and post-build commands in
