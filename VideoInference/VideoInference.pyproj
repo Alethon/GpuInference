@@ -24,6 +24,11 @@
     <Compile Include="VideoInference.py" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\CameraDriver\CameraDriver.vcxproj">
+      <Name>CameraDriver</Name>
+      <Project>{f913aa51-2049-42a4-aed6-eee8aa5fcba7}</Project>
+      <Private>True</Private>
+    </ProjectReference>
     <ProjectReference Include="..\ObjectRecognition\ObjectRecognition.pyproj">
       <Name>ObjectRecognition</Name>
       <Project>{cf15ae9d-b995-4b39-a6b7-052654aa8351}</Project>
