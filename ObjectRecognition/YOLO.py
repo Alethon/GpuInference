@@ -12,10 +12,10 @@ def downsample_add(x: Tensor, y: Tensor) -> Tensor:
     return F.interpolate(y, (h, w), mode='bilinear') + x
 
 class Prefilter(nn.Module):
-    def __init__(self, channels_in: int, kernel_size: int, stride: int) -> None:
+    def __init__(self, channels_out: int, kernel_size: int, stride: int) -> None:
         super().__init__()
-        self.convbn1 = ConvBn(3, channels_in / 2, kernel_size, stride)
-        self.convbn2 = ConvBn(channels_in / 2, channels_in, kernel_size, stride)
+        self.convbn1 = ConvBn(3, channels_out / 2, kernel_size, stride)
+        self.convbn2 = ConvBn(channels_out / 2, channels_out, kernel_size, stride)
     
     def forward(self, x: Tensor) -> Tensor:
         return self.convbn2(self.convbn1(x))
@@ -23,6 +23,7 @@ class Prefilter(nn.Module):
 class YoloNet(nn.Module):
     def __init__(self, channels: int) -> None:
         super().__init__()
+        self.filter = Prefilter(64, 3, 1)
         self.rl1 = ResidualLayer1(64, 128, 2)
         self.rl2 = ResidualLayer1(128, 256, 2)
         self.rl3 = ResidualLayer1(256, 512, 2)
@@ -38,7 +39,8 @@ class YoloNet(nn.Module):
         self.out3 = ConvBn(64, channels, 1, 1)
 
     def forward(self, x: Tensor):
-        c1 = self.rl1(x)
+        f = self.filter(x)
+        c1 = self.rl1(f)
         c2 = self.rl2(c1)
         c3 = self.rl3(c2)
         c4 = self.rl4(c3)
