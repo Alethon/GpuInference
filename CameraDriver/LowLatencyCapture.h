@@ -17,14 +17,15 @@ public:
 	LowLatencyCapture();
 	LowLatencyCapture(const string&);
 	~LowLatencyCapture();
-	bool GetNewFrame(cv::OutputArray);
+	tuple<bool, OutputArray> GetNewFrame();
 	DWORD WINAPI FrameUpdateLoop();
 	void Test(int);
 
 protected:
 	void Init();
-	cv::VideoCapture capture;
-	cv::Mat currentFrame;
+	VideoCapture capture;
+	Mat currentFrame;
+	_OutputArray readFrame;
 	HANDLE frameReady;// semaphore
 	HANDLE frameLock;// mutex
 	HANDLE captureThread;

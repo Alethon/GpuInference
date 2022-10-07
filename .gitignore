@@ -21,3 +21,4 @@ bld/
 [Ll]ogs/
 .vs/
 __pycache__/
+.vscode/

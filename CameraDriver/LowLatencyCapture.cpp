@@ -13,6 +13,7 @@ DWORD WINAPI FrameUpdateLoopCall(LPVOID lpParam) {
 }
 
 void LowLatencyCapture::Init() {
+    // readFrame = &Mat();
     frameReady = CreateSemaphore(NULL, 0, 1, NULL);
     frameLock = CreateMutex(NULL, false, NULL);
     captureThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)FrameUpdateLoopCall, this, NULL, NULL);
@@ -20,13 +21,13 @@ void LowLatencyCapture::Init() {
 
 // for webcam testing
 LowLatencyCapture::LowLatencyCapture() {
-    capture = cv::VideoCapture(0);
+    capture = VideoCapture(0);
     Init();
 }
 
 // for rtsp stream testing
 LowLatencyCapture::LowLatencyCapture(const string& address) {
-    capture = cv::VideoCapture(address);
+    capture = VideoCapture(address);
     Init();
 }
 
@@ -37,27 +38,27 @@ LowLatencyCapture::~LowLatencyCapture() {
     CloseHandle(captureThread);
 }
 
-bool LowLatencyCapture::GetNewFrame(cv::OutputArray image) {
+tuple<bool, OutputArray> LowLatencyCapture::GetNewFrame() {
     // wait for a new frame to be ready
     DWORD waitResult = WaitForSingleObject(frameReady, INFINITE);
     if (waitResult != WAIT_OBJECT_0) {
         cout << "Failed to wait for frameReady: " << GetLastError() << endl;
-        return false;
+        return tuple<bool, OutputArray>(false, readFrame);
     }
 
     // lock the frame object
     waitResult = WaitForSingleObject(frameLock, INFINITE);
     if (waitResult != WAIT_OBJECT_0) {
         cout << "Failed to wait for frameLock: " << GetLastError() << endl;
-        return false;
+        return tuple<bool, OutputArray>(false, readFrame);
     }
 
-    currentFrame.copyTo(image);
+    currentFrame.copyTo(readFrame);
 
     // release the lock
     ReleaseMutex(frameLock);
 
-    return true;
+    return tuple<bool, OutputArray>(true, readFrame);
 }
 
 DWORD WINAPI LowLatencyCapture::FrameUpdateLoop() {
@@ -101,7 +102,7 @@ void LowLatencyCapture::Test(int frameCount) {
     // display frames
     for (int i = 0; i < frameCount; i++) {
         cv::waitKey(1);// required to give the display window rendering time
-        if (!GetNewFrame(frame)) {
+        if (!get<0>(GetNewFrame())) {
             cout << "This should never fail under webcam test. Something is wrong." << endl;
             cv::waitKey(0);
             cv::destroyAllWindows();

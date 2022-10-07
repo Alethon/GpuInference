@@ -1,7 +1,7 @@
 from CameraDriver import LowLatencyCapture
 import cv2
 
-rtsp = 1
+rtsp = 0
 frameCount = 100
 
 if rtsp == 1:

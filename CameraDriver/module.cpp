@@ -15,7 +15,7 @@ PYBIND11_MODULE(CameraDriver, m) {
     py::class_<LowLatencyCapture>(m, "LowLatencyCapture")
         .def(py::init<>())
         .def(py::init<const string&>())
-        .def("GetNewFrame", &LowLatencyCapture::GetNewFrame)
+        // .def("GetNewFrame", &LowLatencyCapture::GetNewFrame)
         .def("Test", &LowLatencyCapture::Test);
 
 // #ifdef VERSION_INFO
