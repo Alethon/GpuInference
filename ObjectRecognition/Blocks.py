@@ -12,4 +12,8 @@ class DarknetTiny3Block(ConvBnLeaky):
 
 class Darknet3Block(nn.Sequential):
     def __init__(self, channels_in: int, channel_neck: int, args: List = []) -> None:
-        super().__init__(ConvBnLeaky(channels_in, channel_neck, 1, 1), ConvBnLeaky(channel_neck, channels_in, 3, 1, padding = 1), ConvBn(channels_in, channels_in, 1, 1), *args)
+        super().__init__(
+            ConvBnLeaky(channels_in, channel_neck, 1, 1),
+            ConvBnLeaky(channel_neck, channels_in, 3, 1, padding = 1),
+            ConvBn(channels_in, channels_in, 1, 1), *args
+        )
