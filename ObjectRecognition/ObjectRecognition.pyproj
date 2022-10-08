@@ -21,12 +21,11 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Blocks.py" />
     <Compile Include="ConvBn2d.py" />
-    <Compile Include="DenseBlocks.py" />
+    <Compile Include="Layers.py" />
     <Compile Include="ObjectRecognition.py" />
-    <Compile Include="ResBlocks.py" />
-    <Compile Include="ResLayers.py" />
-    <Compile Include="YOLO.py" />
+    <Compile Include="ResidualBlocks.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
