@@ -7,15 +7,11 @@ from ObjectRecognition import *
 from time import time
 
 class VideoDriver:
-    def __init__(self, connectionAddress, cuda: bool, resolution: Tuple[int, int] = (1920, 1080)) -> None:
+    def __init__(self, connectionAddress, device: torch.device, resolution: Tuple[int, int] = (1920, 1080)) -> None:
         self.capture: cv2.VideoCapture = cv2.VideoCapture(connectionAddress)
         self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
-        if cuda:
-            self.device: torch.device = torch.device('cuda')
-        else:
-            self.device: torch.device = torch.device('cpu')
-        
+        self.device = device
         result: Tuple[bool, Tensor] = self._getValidFrame()
         if not result[0]:
             raise ValueError('Could not get an initial frame.')
@@ -40,13 +36,13 @@ class VideoDriver:
         return validFrame[0], self.lastFrame
 
 class VideoInference:
-    def __init__(self, connectionAddress, weightPath: str, channelCount: int = 6, cuda: bool = True) -> None:
+    def __init__(self, connectionAddress, weightPath: str, channelCount: int = 6) -> None:
         self.driver: VideoDriver = VideoDriver(connectionAddress, cuda)
         self.nn: torch.nn.Module = YoloNet(channelCount)
         if weightPath is not None:
             self.nn.load_state_dict(torch.load(weightPath))
-        if cuda:
-            self.nn = self.nn.cuda()
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.nn = self.nn.to(self.device)
     
     def GetNextResult(self) -> Tuple[bool, Tensor]:
         success, frame = self.driver.GetNextFrame()

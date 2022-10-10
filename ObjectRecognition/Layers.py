@@ -6,9 +6,9 @@ import torch.nn.functional as F
 from Blocks import *
 from ResidualBlocks import *
 
-class DarknetTiny3Layer(DarknetTiny3Block):
+class DarknetTiny3Layer(nn.Sequential):
     def __init__(self, channels_in: int, channels_out: int) -> None:
-        super().__init__(channels_in, channels_out, args=[nn.MaxPool2d(2, 2)])
+        super().__init__(nn.MaxPool2d(2, 2), DarknetTiny3Block(channels_in, channels_out))
 
 class Darknet3ResidualLayer(nn.Sequential):
     def __init__(self, channels_in: int, channel_neck: int, block_count: int) -> None:
