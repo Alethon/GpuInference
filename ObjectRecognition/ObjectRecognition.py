@@ -48,6 +48,8 @@ class DarknetTiny3(nn.Module):
 class Darknet3(nn.Module):
     def __init__(self, nC: int = 80) -> None:
         super().__init__()
+        # intermediate channel count
+        icc = 3 * nC + 15
         # the first layers before the first intermediate result needs to be retained
         self.dnrl1 = nn.Sequential(
             ConvBnLeaky(3, 32, 3, 1, 1),
@@ -67,17 +69,17 @@ class Darknet3(nn.Module):
             Darknet3Layer(1024, 512, 4),
             ConvBnLeaky(1024, 512, 1, 1)
         )
-        self.py1 = nn.Sequential(ConvBnLeaky(512, 1024, 3, 1, 1), ConvBn(1024, 255, 1, 1))
+        self.py1 = nn.Sequential(ConvBnLeaky(512, 1024, 3, 1, 1), ConvBn(1024, icc, 1, 1))
         self.yolo1 = YoloLayer([6, 7, 8], nC)
         self.cbu1 = ConvBnLeaky(512, 256, 1, 1, suffix=[Upsample()])
         self.dnl2 = nn.Sequential(ConvBnLeaky(768, 256, 1, 1),
             ConvBnLeaky(256, 512, 3, 1, 1), ConvBnLeaky(512, 256, 1, 1),
             ConvBnLeaky(256, 512, 3, 1, 1), ConvBnLeaky(512, 256, 1, 1))
-        self.py2 = nn.Sequential(ConvBnLeaky(256, 512, 3, 1, 1), ConvBn(512, 255, 1, 1))
+        self.py2 = nn.Sequential(ConvBnLeaky(256, 512, 3, 1, 1), ConvBn(512, icc, 1, 1))
         self.yolo2 = YoloLayer([3, 4, 5], nC)
         self.cbu2 = ConvBnLeaky(256, 128, 1, 1, suffix=[Upsample()])
         self.py3 = nn.Sequential(ConvBnLeaky(384, 128, 1, 1), ConvBnLeaky(128, 256, 3, 1, 1),
-            Darknet3Layer(256, 128, 2), ConvBn(256, 255, 1, 1))
+            Darknet3Layer(256, 128, 2), ConvBn(256, icc, 1, 1))
         self.yolo3 = YoloLayer([0, 1, 2], nC)
 
     def forward(self, x: Tensor) -> List[Tensor] | Tensor:
@@ -93,7 +95,7 @@ class Darknet3(nn.Module):
         return yolo if self.training else torch.cat(yolo, 1)
 
 if __name__ == '__main__':
-    rl = Darknet3(80).cuda()
+    rl = Darknet3(76).cuda()
     # rl = ResidualLayer1(64, 128, 8)
     # rl = ParallelFuseBn(64, *[DenseBlock1(64, 64, 64) for i in range(0, 8)]).cuda()
     # rl = DenseBlock1(64, 64, 64).cuda()
