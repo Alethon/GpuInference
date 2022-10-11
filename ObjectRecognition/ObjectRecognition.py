@@ -6,9 +6,7 @@ import torch.nn.functional as F
 from ConvBn2d import *
 from ResidualBlocks import *
 from Layers import *
-
-def upsample(t: Tensor, h: int, w: int) -> Tensor:
-    return F.interpolate(t, (h, w), mode='bilinear')
+from YOLOv3 import *
 
 class DarknetTiny3(nn.Module):
     def __init__(self, channels: int) -> None:
@@ -47,12 +45,63 @@ class DarknetTiny3(nn.Module):
         out = upsample(self.cb2(out + p3), 120, 67)
         return out
 
+class Darknet3(nn.Module):
+    def __init__(self, nC: int = 80) -> None:
+        super().__init__()
+        # prefilter
+        self.pf = ConvBnLeaky(3, 32, 3, 1, 1)
+        # layer 1
+        self.dnrl1 = Darknet3ResidualLayer(64, 32, 1, prefix=[ConvBnLeaky(32, 64, 3, 2, 1)])
+        # layer 2
+        self.dnrl2 = Darknet3ResidualLayer(128, 64, 2, prefix=[ConvBnLeaky(64, 128, 3, 2, 1)])
+        # layer 3
+        self.dnrl3 = Darknet3ResidualLayer(256, 128, 8, prefix=[ConvBnLeaky(128, 256, 3, 2, 1)])
+        # layer 4
+        self.dnrl4 = Darknet3ResidualLayer(512, 256, 8, prefix=[ConvBnLeaky(256, 512, 3, 2, 1)])
+        # layer 5
+        self.dnrl5 = Darknet3ResidualLayer(1024, 512, 4, prefix=[ConvBnLeaky(512, 1024, 3, 2, 1)])
+        self.dnl1 = Darknet3Layer(1024, 512, 4, suffix=[ConvBnLeaky(1024, 512, 1, 1)])
+        self.py1 = nn.Sequential(ConvBnLeaky(512, 1024, 3, 1, 1), ConvBn(1024, 255, 1, 1))
+        self.yolo1 = YoloLayer([6, 7, 8], nC)
+        self.cbu1 = ConvBnLeaky(512, 256, 1, 1, suffix=[Upsample()])
+        self.dnl2 = nn.Sequential(ConvBnLeaky(768, 256, 1, 1),
+            ConvBnLeaky(256, 512, 3, 1, 1), ConvBnLeaky(512, 256, 1, 1),
+            ConvBnLeaky(256, 512, 3, 1, 1), ConvBnLeaky(512, 256, 1, 1))
+        self.py2 = nn.Sequential(ConvBnLeaky(256, 512, 3, 1, 1), ConvBn(512, 255, 1, 1))
+        self.yolo2 = YoloLayer([3, 4, 5], nC)
+        self.cbu2 = ConvBnLeaky(256, 128, 1, 1, suffix=[Upsample()])
+        self.py3 = nn.Sequential(ConvBnLeaky(384, 128, 1, 1), ConvBnLeaky(128, 256, 3, 1, 1),
+            Darknet3Layer(256, 128, 2), ConvBn(256, 255, 1, 1))
+        self.yolo3 = YoloLayer([0, 1, 2], nC)
+
+    def forward(self, x: Tensor) -> List[Tensor] | Tensor:
+        yolo: List[Tensor] = [None, None, None]
+        imgSize: int = x.shape[-1]
+        out: Tensor = self.pf(x)
+        out = self.dnrl1(out)
+        out = self.dnrl2(out)
+        p1: Tensor = self.dnrl3(out)
+        p2: Tensor = self.dnrl4(p1)
+        p3: Tensor = self.dnl1(self.dnrl5(p2))
+        out = self.py1(p3)
+        yolo[0] = self.yolo1(out, imgSize)
+        out = self.cbu1(p3)
+        print(out.shape)
+        out = torch.cat([out, p2], 1)
+        out = self.dnl2(out)
+        yolo[1] = self.yolo2(self.py2(out), imgSize)
+        out = self.cbu2(out)
+        print(out.shape, p1.shape)
+        out = torch.cat([out, p1], 1)
+        yolo[2] = self.yolo3(self.py3(out), imgSize)
+        return yolo if self.training else torch.cat(yolo, 1)
 
 if __name__ == '__main__':
-    rl = DarknetTiny3(10).cuda()
+    rl = Darknet3(80).cuda()
     # rl = ResidualLayer1(64, 128, 8)
     # rl = ParallelFuseBn(64, *[DenseBlock1(64, 64, 64) for i in range(0, 8)]).cuda()
     # rl = DenseBlock1(64, 64, 64).cuda()
-    x: Tensor = torch.rand((1, 3, 1920, 1080), requires_grad=True).float().cuda().abs()
+    x: Tensor = torch.rand((1, 3, 416, 416), requires_grad=True).float().cuda().abs()
     x = 255 * x / x.max()
-    rl.forward(x).shape
+    res = rl.forward(x)
+    print([r.shape for r in res])
