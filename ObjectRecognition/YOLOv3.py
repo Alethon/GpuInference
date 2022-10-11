@@ -1,3 +1,5 @@
+# CREDIT: https://github.com/ultralytics/yolov3/blob/v3.0/models.py
+
 from typing import List, Tuple
 import torch
 from torch import Tensor

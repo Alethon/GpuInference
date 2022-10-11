@@ -1,11 +1,12 @@
 import torch
-from torch import Tensor
 import torch.nn as nn
-import torch.nn.functional as F
+from torch import Tensor
 
 from ConvBn2d import *
+from Blocks import *
 from ResidualBlocks import *
 from Layers import *
+
 from YOLOv3 import *
 
 class DarknetTiny3(nn.Module):
@@ -109,9 +110,6 @@ class Darknet3(nn.Module):
 
 if __name__ == '__main__':
     rl = DarknetTiny3(10, 0.5).cuda()
-    # rl = ResidualLayer1(64, 128, 8)
-    # rl = ParallelFuseBn(64, *[DenseBlock1(64, 64, 64) for i in range(0, 8)]).cuda()
-    # rl = DenseBlock1(64, 64, 64).cuda()
     x: Tensor = torch.rand((1, 3, 416, 416), requires_grad=True).float().cuda().abs()
     x = 255 * x / x.max()
     res = rl.forward(x)
