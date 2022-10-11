@@ -83,18 +83,13 @@ class Darknet3(nn.Module):
     def forward(self, x: Tensor) -> List[Tensor] | Tensor:
         yolo: List[Tensor] = [None, None, None]
         imgSize: int = x.shape[-1]
-        p1: Tensor = self.dnrl1(x)
-        p2: Tensor = self.dnrl2(p1)
-        p3: Tensor = self.dnrl3(p2)
-        out: Tensor = self.py1(p3)
-        yolo[0] = self.yolo1(out, imgSize)
-        out = self.cbu1(p3)
-        out = torch.cat([out, p2], 1)
-        out = self.dnl2(out)
-        yolo[1] = self.yolo2(self.py2(out), imgSize)
-        out = self.cbu2(out)
-        out = torch.cat([out, p1], 1)
-        yolo[2] = self.yolo3(self.py3(out), imgSize)
+        yolo[2] = self.dnrl1(x)
+        yolo[1] = self.dnrl2(yolo[2])
+        temp: Tensor = self.dnrl3(yolo[1])
+        yolo[0] = self.yolo1(self.py1(temp), imgSize)
+        temp = self.dnl2(torch.cat([self.cbu1(temp), yolo[1]], 1))
+        yolo[1] = self.yolo2(self.py2(temp), imgSize)
+        yolo[2] = self.yolo3(self.py3(torch.cat([self.cbu2(temp), yolo[2]], 1)), imgSize)
         return yolo if self.training else torch.cat(yolo, 1)
 
 if __name__ == '__main__':
