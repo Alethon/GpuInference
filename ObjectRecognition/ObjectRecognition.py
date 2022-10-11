@@ -50,37 +50,52 @@ class Darknet3(nn.Module):
         super().__init__()
         # intermediate channel count
         icc = 3 * nC + 15
-        # the first layers before the first intermediate result needs to be retained
-        self.dnrl1 = nn.Sequential(
-            ConvBnLeaky(3, 32, 3, 1, 1),
-            ConvBnLeaky(32, 64, 3, 2, 1),
-            Darknet3ResidualLayer(64, 32, 1),
-            ConvBnLeaky(64, 128, 3, 2, 1),
-            Darknet3ResidualLayer(128, 64, 2),
-            ConvBnLeaky(128, 256, 3, 2, 1),
-            Darknet3ResidualLayer(256, 128, 8)
-        )
-        # next retained result
+
+        # intermediate result
+        self.dnrl1 = nn.Sequential(ConvBnLeaky(3, 32, 3, 1, 1),
+                                   ConvBnLeaky(32, 64, 3, 2, 1),
+                                   Darknet3ResidualLayer(64, 32, 1),
+                                   ConvBnLeaky(64, 128, 3, 2, 1),
+                                   Darknet3ResidualLayer(128, 64, 2),
+                                   ConvBnLeaky(128, 256, 3, 2, 1),
+                                   Darknet3ResidualLayer(256, 128, 8))
+        
+        # intermediate result
         self.dnrl2 = Darknet3ResidualLayer(512, 256, 8, prefix=[ConvBnLeaky(256, 512, 3, 2, 1)])
-        # next retained result
-        self.dnrl3 = nn.Sequential(
-            ConvBnLeaky(512, 1024, 3, 2, 1),
-            Darknet3ResidualLayer(1024, 512, 4),
-            Darknet3Layer(1024, 512, 4),
-            ConvBnLeaky(1024, 512, 1, 1)
-        )
-        self.py1 = nn.Sequential(ConvBnLeaky(512, 1024, 3, 1, 1), ConvBn(1024, icc, 1, 1))
+
+        # intermediate result
+        self.dnrl3 = nn.Sequential(ConvBnLeaky(512, 1024, 3, 2, 1),
+                                   Darknet3ResidualLayer(1024, 512, 4),
+                                   Darknet3Layer(1024, 512, 4),
+                                   ConvBnLeaky(1024, 512, 1, 1))
+        
+        # the 1st yolo
         self.yolo1 = YoloLayer([6, 7, 8], nC)
+        self.py1 = nn.Sequential(ConvBnLeaky(512, 1024, 3, 1, 1),
+                                 ConvBn(1024, icc, 1, 1))
+
+        # intermediate result
         self.cbu1 = ConvBnLeaky(512, 256, 1, 1, suffix=[Upsample()])
-        self.dnl2 = nn.Sequential(ConvBnLeaky(768, 256, 1, 1),
-            ConvBnLeaky(256, 512, 3, 1, 1), ConvBnLeaky(512, 256, 1, 1),
-            ConvBnLeaky(256, 512, 3, 1, 1), ConvBnLeaky(512, 256, 1, 1))
-        self.py2 = nn.Sequential(ConvBnLeaky(256, 512, 3, 1, 1), ConvBn(512, icc, 1, 1))
+        self.dnl = nn.Sequential(ConvBnLeaky(768, 256, 1, 1),
+                                 ConvBnLeaky(256, 512, 3, 1, 1),
+                                 ConvBnLeaky(512, 256, 1, 1),
+                                 ConvBnLeaky(256, 512, 3, 1, 1),
+                                 ConvBnLeaky(512, 256, 1, 1))
+
+        # the 2nd yolo
         self.yolo2 = YoloLayer([3, 4, 5], nC)
+        self.py2 = nn.Sequential(ConvBnLeaky(256, 512, 3, 1, 1),
+                                 ConvBn(512, icc, 1, 1))
+
+        # intermediate result
         self.cbu2 = ConvBnLeaky(256, 128, 1, 1, suffix=[Upsample()])
-        self.py3 = nn.Sequential(ConvBnLeaky(384, 128, 1, 1), ConvBnLeaky(128, 256, 3, 1, 1),
-            Darknet3Layer(256, 128, 2), ConvBn(256, icc, 1, 1))
+
+        # the 3rd yolo
         self.yolo3 = YoloLayer([0, 1, 2], nC)
+        self.py3 = nn.Sequential(ConvBnLeaky(384, 128, 1, 1),
+                                 ConvBnLeaky(128, 256, 3, 1, 1),
+                                 Darknet3Layer(256, 128, 2),
+                                 ConvBn(256, icc, 1, 1))
 
     def forward(self, x: Tensor) -> List[Tensor] | Tensor:
         yolo: List[Tensor] = [None, None, None]
@@ -89,7 +104,7 @@ class Darknet3(nn.Module):
         yolo[1] = self.dnrl2(yolo[2])
         temp: Tensor = self.dnrl3(yolo[1])
         yolo[0] = self.yolo1(self.py1(temp), imgSize)
-        temp = self.dnl2(torch.cat([self.cbu1(temp), yolo[1]], 1))
+        temp = self.dnl(torch.cat([self.cbu1(temp), yolo[1]], 1))
         yolo[1] = self.yolo2(self.py2(temp), imgSize)
         yolo[2] = self.yolo3(self.py3(torch.cat([self.cbu2(temp), yolo[2]], 1)), imgSize)
         return yolo if self.training else torch.cat(yolo, 1)
