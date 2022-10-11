@@ -48,19 +48,25 @@ class DarknetTiny3(nn.Module):
 class Darknet3(nn.Module):
     def __init__(self, nC: int = 80) -> None:
         super().__init__()
-        # prefilter
-        self.pf = ConvBnLeaky(3, 32, 3, 1, 1)
-        # layer 1
-        self.dnrl1 = Darknet3ResidualLayer(64, 32, 1, prefix=[ConvBnLeaky(32, 64, 3, 2, 1)])
-        # layer 2
-        self.dnrl2 = Darknet3ResidualLayer(128, 64, 2, prefix=[ConvBnLeaky(64, 128, 3, 2, 1)])
-        # layer 3
-        self.dnrl3 = Darknet3ResidualLayer(256, 128, 8, prefix=[ConvBnLeaky(128, 256, 3, 2, 1)])
-        # layer 4
-        self.dnrl4 = Darknet3ResidualLayer(512, 256, 8, prefix=[ConvBnLeaky(256, 512, 3, 2, 1)])
-        # layer 5
-        self.dnrl5 = Darknet3ResidualLayer(1024, 512, 4, prefix=[ConvBnLeaky(512, 1024, 3, 2, 1)])
-        self.dnl1 = Darknet3Layer(1024, 512, 4, suffix=[ConvBnLeaky(1024, 512, 1, 1)])
+        # the first layers before the first intermediate result needs to be retained
+        self.dnrl1 = nn.Sequential(
+            ConvBnLeaky(3, 32, 3, 1, 1),
+            ConvBnLeaky(32, 64, 3, 2, 1),
+            Darknet3ResidualLayer(64, 32, 1),
+            ConvBnLeaky(64, 128, 3, 2, 1),
+            Darknet3ResidualLayer(128, 64, 2),
+            ConvBnLeaky(128, 256, 3, 2, 1),
+            Darknet3ResidualLayer(256, 128, 8)
+        )
+        # next retained result
+        self.dnrl2 = Darknet3ResidualLayer(512, 256, 8, prefix=[ConvBnLeaky(256, 512, 3, 2, 1)])
+        # next retained result
+        self.dnrl3 = nn.Sequential(
+            ConvBnLeaky(512, 1024, 3, 2, 1),
+            Darknet3ResidualLayer(1024, 512, 4),
+            Darknet3Layer(1024, 512, 4),
+            ConvBnLeaky(1024, 512, 1, 1)
+        )
         self.py1 = nn.Sequential(ConvBnLeaky(512, 1024, 3, 1, 1), ConvBn(1024, 255, 1, 1))
         self.yolo1 = YoloLayer([6, 7, 8], nC)
         self.cbu1 = ConvBnLeaky(512, 256, 1, 1, suffix=[Upsample()])
@@ -77,21 +83,16 @@ class Darknet3(nn.Module):
     def forward(self, x: Tensor) -> List[Tensor] | Tensor:
         yolo: List[Tensor] = [None, None, None]
         imgSize: int = x.shape[-1]
-        out: Tensor = self.pf(x)
-        out = self.dnrl1(out)
-        out = self.dnrl2(out)
-        p1: Tensor = self.dnrl3(out)
-        p2: Tensor = self.dnrl4(p1)
-        p3: Tensor = self.dnl1(self.dnrl5(p2))
-        out = self.py1(p3)
+        p1: Tensor = self.dnrl1(x)
+        p2: Tensor = self.dnrl2(p1)
+        p3: Tensor = self.dnrl3(p2)
+        out: Tensor = self.py1(p3)
         yolo[0] = self.yolo1(out, imgSize)
         out = self.cbu1(p3)
-        print(out.shape)
         out = torch.cat([out, p2], 1)
         out = self.dnl2(out)
         yolo[1] = self.yolo2(self.py2(out), imgSize)
         out = self.cbu2(out)
-        print(out.shape, p1.shape)
         out = torch.cat([out, p1], 1)
         yolo[2] = self.yolo3(self.py3(out), imgSize)
         return yolo if self.training else torch.cat(yolo, 1)
