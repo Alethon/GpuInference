@@ -26,6 +26,8 @@
     <Compile Include="Layers.py" />
     <Compile Include="ObjectRecognition.py" />
     <Compile Include="ResidualBlocks.py" />
+    <Compile Include="train.py" />
+    <Compile Include="utils.py" />
     <Compile Include="YOLOv3.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />

@@ -1,3 +1,4 @@
+from genericpath import isfile
 import os
 import cv2
 import numpy as np
@@ -58,7 +59,7 @@ class CocoSubset(Dataset):
         self.classList: list[str] = classList
 
         self.alias: dict[int, int] = { ogIndexLookup.get(cls): i for i, cls in enumerate(self.classList) if cls in ogIndexLookup }
-        self.subsetAlias: str = '-'.join([ogIndexLookup.get(cls) for cls in self.classList])
+        self.subsetAlias: str = '-'.join([str(ogIndexLookup.get(cls)) for cls in self.classList])
 
         self.subset: bool = (len(self.classList) != len(ogClassList) or any(c1 != c2 for c1, c2 in zip(self.classList, ogClassList)))
 
@@ -81,7 +82,7 @@ class CocoSubset(Dataset):
         self.images: list = []
         self.labels: list[Tensor] = []
 
-        self._loadData()
+        # self._loadData()
     
     def _makeDirs(self) -> bool:
         result: bool = True
@@ -109,11 +110,12 @@ class CocoSubset(Dataset):
             ilPairs = [(i, i.replace('images', 'labels').replace('.png\n', '.txt').replace('.jpg\n', '.txt')) for i in f.readlines()]
         keep5k: list[tuple[str, str, str]] = []
         for imageFile, labelFile in ilPairs:
-            with open(labelFile, 'r') as f:
-                labels: list[tuple[int, str]] = getIntStrLabels(f.readlines())
-            labelStrings: list[str] = [str(ai) + ' ' + ss for ai, ss in [(self.alias.get(i), s) for i, s in labels] if ai is not None]
-            if len(labelStrings) > 0:
-                keep5k.append((imageFile, labelFile.replace(COCO_LABELS_UNROOT, os.path.join(COCO_SUBSETS_UNROOT, self.subsetAlias, 'labels')), ''.join(labelStrings)))
+            if os.path.isfile(labelFile):
+                with open(labelFile, 'r') as f:
+                    labels: list[tuple[int, str]] = getIntStrLabels(f.readlines())
+                labelStrings: list[str] = [str(ai) + ' ' + ss for ai, ss in [(self.alias.get(i), s) for i, s in labels] if ai is not None]
+                if len(labelStrings) > 0:
+                    keep5k.append((imageFile, labelFile.replace(COCO_LABELS_UNROOT, os.path.join(COCO_SUBSETS_UNROOT, self.subsetAlias, 'labels')), ''.join(labelStrings)))
         with open(os.path.join(COCO, 'trainvalno5k.txt'), 'r') as f:
             ilPairs = [(i, i.replace('images', 'labels').replace('.png\n', '.txt').replace('.jpg\n', '.txt')) for i in f.readlines()]
         keep: list[tuple[str, str, str]] = []
@@ -140,29 +142,29 @@ class CocoSubset(Dataset):
             for i, (imagePath, labelPath, label) in enumerate(keep):
                 with open(labelPath, 'w+') as f:
                     f.write(label)
-                if i == n:
+                if i == skipno5k[n]:
                     n += 1
                     f5k.write(imagePath)
                 else:
                     fno5k.write(imagePath)
     
-    def _loadData(self) -> None:
-        with open(self.trainvalno5k, 'r') as f:
-            data: list[str] = [i.replace('\n', '') for i in f.readlines()]
-        for d in data:
-            img = torch.from_numpy(cv2.imread(d))
-            self.images.append(F.interpolate(, , mode='bilinear'))
-            labelPath = d.replace(COCO_IMAGES_UNROOT, self.labelsDirUnroot).replace('.png', '.txt').replace('.jpg', '.txt')
-            if os.path.isfile(labelPath):
-                with open(labelPath, 'r') as f:
-                    labels0 = np.array([x.split() for x in f.read().splitlines()], dtype=np.float32)
-                labels0 = labels0[labels0[:, 0] < self.clsCount]
-                # Normalized xywh to pixel xyxy format
-                labels = labels0.copy()
-                labels[:, 1] = ratio * w * (labels0[:, 1] - labels0[:, 3] / 2) + padw
-                labels[:, 2] = ratio * h * (labels0[:, 2] - labels0[:, 4] / 2) + padh
-                labels[:, 3] = ratio * w * (labels0[:, 1] + labels0[:, 3] / 2) + padw
-                labels[:, 4] = ratio * h * (labels0[:, 2] + labels0[:, 4] / 2) + padh
+    # def _loadData(self) -> None:
+    #     with open(self.trainvalno5k, 'r') as f:
+    #         data: list[str] = [i.replace('\n', '') for i in f.readlines()]
+    #     for d in data:
+    #         img = torch.from_numpy(cv2.imread(d))
+    #         self.images.append(F.interpolate(, , mode='bilinear'))
+    #         labelPath = d.replace(COCO_IMAGES_UNROOT, self.labelsDirUnroot).replace('.png', '.txt').replace('.jpg', '.txt')
+    #         if os.path.isfile(labelPath):
+    #             with open(labelPath, 'r') as f:
+    #                 labels0 = np.array([x.split() for x in f.read().splitlines()], dtype=np.float32)
+    #             labels0 = labels0[labels0[:, 0] < self.clsCount]
+    #             # Normalized xywh to pixel xyxy format
+    #             labels = labels0.copy()
+    #             labels[:, 1] = ratio * w * (labels0[:, 1] - labels0[:, 3] / 2) + padw
+    #             labels[:, 2] = ratio * h * (labels0[:, 2] - labels0[:, 4] / 2) + padh
+    #             labels[:, 3] = ratio * w * (labels0[:, 1] + labels0[:, 3] / 2) + padw
+    #             labels[:, 4] = ratio * h * (labels0[:, 2] + labels0[:, 4] / 2) + padh
         
 
 
@@ -194,3 +196,6 @@ class Darknet3User:
         self.model.to(self.device).eval()
         if torch.cuda.is_available():
             self.model.half()
+
+if __name__ == '__main__':
+    cs = CocoSubset(416, classList=['person', 'cat'])
