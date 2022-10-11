@@ -9,44 +9,42 @@ from Layers import *
 from YOLOv3 import *
 
 class DarknetTiny3(nn.Module):
-    def __init__(self, channels: int) -> None:
+    def __init__(self, nC: int, scale: float = 1.0) -> None:
         super().__init__()
-        # prefilter
-        self.pf = DarknetTiny3Block(3, 32)
-        # layer 1
-        self.dntl1 = DarknetTiny3Layer(32, 64)
-        # layer 2
-        self.dntl2 = DarknetTiny3Layer(64, 128)
-        # layer 3
-        self.dntl3 = DarknetTiny3Layer(128, 256)
-        # layer 4
-        self.dntl4 = DarknetTiny3Layer(256, 512)
-        # layer 5
-        self.dntl5 = DarknetTiny3Layer(512, 1024)
-        # combobs
-        self.cb1 = ConvBnLeaky(1024, 512, 1, 1)
-        self.cb2 = ConvBnLeaky(1024, 512, 1, 1)
-        self.cb3 = ConvBnLeaky(1024, 512, 1, 1)
+        # intermediate channel count
+        icc = 3 * nC + 15
 
-    def forward(self, x: Tensor) -> Tensor:
-        # prefilter
-        out: Tensor = self.pf(x)
-        # layer 1
-        out = self.dntl1(out)
-        # layer 2
-        p1 = self.dntl2(out)
-        # layer 3
-        p2 = self.dntl3(out)
-        # layer 4
-        p3 = self.dntl4(out)
-        # layer 5
-        p4 = self.dntl5(out)
-        out = upsample(self.cb1(p4), 120, 67)
-        out = upsample(self.cb2(out + p3), 120, 67)
-        return out
+        # intermediate result
+        self.dntl1 = nn.Sequential(DarknetTiny3Block(3, int(32 * scale)),
+                                   DarknetTiny3Layer(int(32 * scale), int(64 * scale)),
+                                   DarknetTiny3Layer(int(64 * scale), int(128 * scale)),
+                                   DarknetTiny3Layer(int(128 * scale), int(256 * scale)),
+                                   DarknetTiny3Layer(int(256 * scale), int(512 * scale)))
+
+        # intermediate result
+        self.dntl2 = DarknetTiny3Layer(int(512 * scale), int(1024 * scale), suffix=[ConvBnLeaky(int(1024 * scale), 256, 1, 1)])
+
+        # yolo 1
+        self.py1 = nn.Sequential(DarknetTiny3Block(256, 512), ConvBn(512, icc, 1, 1))
+        self.yolo1 = YoloLayer([3, 4, 5], nC)
+
+        self.cblu = ConvBnLeaky(256, 128, 1, 1, suffix=[Upsample()])
+
+        # yolo 2
+        self.py2 = nn.Sequential(DarknetTiny3Block(int(512 * scale) + 128, 256), ConvBn(256, icc, 1, 1))
+        self.yolo2 = YoloLayer([0, 1, 2], nC)
+
+    def forward(self, x: Tensor) -> List[Tensor] | Tensor:
+        yolo: List[Tensor] = [None, None]
+        imgSize: int = x.shape[-1]
+        yolo[1] = self.dntl1(x)
+        temp: Tensor = self.dntl2(yolo[1])
+        yolo[0] = self.yolo1(self.py1(temp), imgSize)
+        yolo[1] = self.yolo2(self.py2(torch.cat([self.cblu(temp), yolo[1]], 1)), imgSize)
+        return yolo if self.training else torch.cat(yolo, 1)
 
 class Darknet3(nn.Module):
-    def __init__(self, nC: int = 80) -> None:
+    def __init__(self, nC: int) -> None:
         super().__init__()
         # intermediate channel count
         icc = 3 * nC + 15
@@ -110,7 +108,7 @@ class Darknet3(nn.Module):
         return yolo if self.training else torch.cat(yolo, 1)
 
 if __name__ == '__main__':
-    rl = Darknet3(76).cuda()
+    rl = DarknetTiny3(10, 0.5).cuda()
     # rl = ResidualLayer1(64, 128, 8)
     # rl = ParallelFuseBn(64, *[DenseBlock1(64, 64, 64) for i in range(0, 8)]).cuda()
     # rl = DenseBlock1(64, 64, 64).cuda()
