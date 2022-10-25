@@ -1,5 +1,3 @@
-# CREDIT: https://github.com/ultralytics/yolov3/blob/v3.0/utils/utils.py
-
 import glob
 import random
 from collections import defaultdict
@@ -286,13 +284,13 @@ def build_targets(model, targets, pred):
     # targets = [image, class, x, y, w, h]
     if isinstance(model, nn.DataParallel):
         model = model.module
-    yolo_layers = get_yolo_layers(model)
+    yolo_layers = [model.yolo1, model.yolo2, model.yolo3]
 
     # anchors = closest_anchor(model, targets)  # [layer, anchor, i, j]
     txy, twh, tcls, tconf, indices = [], [], [], [], []
     for i, layer in enumerate(yolo_layers):
-        nG = model.module_list[layer][0].nG  # grid size
-        anchor_vec = model.module_list[layer][0].anchor_vec
+        nG = layer.nG  # grid size
+        anchor_vec = layer.anchorVector
 
         # iou of targets-anchors
         gwh = targets[:, 4:6] * nG
@@ -491,23 +489,3 @@ def plot_results(start=0):
             plt.title(s[i])
             if i == 0:
                 plt.legend()
-
-
-def xyxy2xywh(x):
-    # Convert bounding box format from [x1, y1, x2, y2] to [x, y, w, h]
-    y = torch.zeros_like(x) if x.dtype is torch.float32 else np.zeros_like(x)
-    y[:, 0] = (x[:, 0] + x[:, 2]) / 2
-    y[:, 1] = (x[:, 1] + x[:, 3]) / 2
-    y[:, 2] = x[:, 2] - x[:, 0]
-    y[:, 3] = x[:, 3] - x[:, 1]
-    return y
-
-
-def xywh2xyxy(x):
-    # Convert bounding box format from [x, y, w, h] to [x1, y1, x2, y2]
-    y = torch.zeros_like(x) if x.dtype is torch.float32 else np.zeros_like(x)
-    y[:, 0] = (x[:, 0] - x[:, 2] / 2)
-    y[:, 1] = (x[:, 1] - x[:, 3] / 2)
-    y[:, 2] = (x[:, 0] + x[:, 2] / 2)
-    y[:, 3] = (x[:, 1] + x[:, 3] / 2)
-    return y

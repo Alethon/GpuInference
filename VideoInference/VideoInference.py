@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import torch
 from torch import Tensor
-from ObjectRecognition import *
+from Darknet.Darknet3 import *
 from time import time
 
 class VideoDriver:

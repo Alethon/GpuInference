@@ -4,7 +4,7 @@ from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ConvBn2d import *
+from Darknet.ConvBn2d import *
 
 class DarknetTiny3Block(ConvBnLeaky):
     def __init__(self, channels_in: int, channels_out: int, prefix = [], suffix = []) -> None:

@@ -2,12 +2,12 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from ConvBn2d import *
-from Blocks import *
-from ResidualBlocks import *
-from Layers import *
+from Darknet.ConvBn2d import *
+from Darknet.Blocks import *
+from Darknet.ResidualBlocks import *
+from Darknet.Layers import *
 
-from YOLOv3 import *
+from Darknet.YOLOv3 import *
 
 class DarknetTiny3(nn.Module):
     def __init__(self, nC: int, scale: float = 1.0) -> None:

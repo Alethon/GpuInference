@@ -1,6 +1,5 @@
 # CREDIT: https://github.com/ultralytics/yolov3/blob/v3.0/models.py
 
-from typing import List, Tuple
 import torch
 from torch import Tensor
 import torch.nn as nn
@@ -21,13 +20,13 @@ class YoloLayer(nn.Module):
                    (30 / div, 61 / div), (62 / div, 45 / div), (59 / div, 119 / div),
                    (116 / div, 90 / div), (156 / div, 198 / div), (373 / div, 326 / div)]
     
-    def __init__(self, mask: List[int], nC: int):
+    def __init__(self, mask: list[int], nC: int):
         super().__init__()
         self.anchors = torch.FloatTensor([YoloLayer.coordinates[m] for m in mask])
         self.nA = len(mask)  # number of anchors (3)
         self.nC = nC  # number of classes (80)
         # print('nC: ' + str(self.nC))
-        self.device = torch.device('cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.createGrids(32, 1)
 
     def forward(self, x: Tensor, imgSize: int):
@@ -66,3 +65,7 @@ class YoloLayer(nn.Module):
     def cuda(self) -> nn.Module:
         self.device = torch.device('cuda')
         return super().cuda()
+    
+    def to(self, device) -> nn.Module:
+        self.device = device
+        return super().to(device=device)

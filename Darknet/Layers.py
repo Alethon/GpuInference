@@ -3,8 +3,8 @@ from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 
-from Blocks import *
-from ResidualBlocks import *
+from Darknet.Blocks import *
+from Darknet.ResidualBlocks import *
 
 class DarknetTiny3Layer(nn.Sequential):
     def __init__(self, channels_in: int, channels_out: int, prefix = [], suffix = []) -> None:

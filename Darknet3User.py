@@ -12,7 +12,7 @@ from torch import Tensor
 from torch.utils.data import Dataset, DataLoader
 
 from utils import *
-from ObjectRecognition import Darknet3, DarknetTiny3
+from Darknet.Darknet3 import Darknet3, DarknetTiny3
 
 CLASS_NAMES = os.path.join('..', 'data', 'coco.names')
 

@@ -1,6 +1,6 @@
 classes=2
-train=../coco/subsets/0-19/trainvalno5k.txt
-valid=../coco/subsets/0-19/5k.txt
-names=data/coco.names
+train=./coco/trainvalno5k.txt
+valid=./coco/5k.txt
+names=./data/coco.names
 backup=backup/
 eval=coco

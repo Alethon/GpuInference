@@ -24,3 +24,4 @@ __pycache__/
 .vscode/
 coco/
 yolov3/
+*.pt

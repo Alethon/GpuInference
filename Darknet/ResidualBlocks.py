@@ -3,8 +3,8 @@ from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ConvBn2d import *
-from Blocks import *
+from Darknet.ConvBn2d import *
+from Darknet.Blocks import *
 
 class Residual(nn.Module):
     def __init__(self, block) -> None:
