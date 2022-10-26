@@ -37,7 +37,7 @@ class DarknetTiny3(nn.Module):
 
     def forward(self, x: Tensor) -> list[Tensor] | Tensor:
         yolo: list[Tensor] = [None, None]
-        imgSize: int = x.shape[-1]
+        imgSize: tuple[int, int] = tuple((x.shape[-1], x.shape[-2]))
         yolo[1] = self.dntl1(x)
         temp: Tensor = self.dntl2(yolo[1])
         yolo[0] = self.yolo1(self.py1(temp), imgSize)
@@ -87,7 +87,7 @@ class Darknet3(nn.Module):
                                  ConvBn(512, icc, 1, 1))
 
         # intermediate result
-        self.cbu2 = ConvBnLeaky(256, 128, 1, 1, suffix=[Upsample()])
+        self.cbu2 = ConvBnLeaky(256, 128, 1, 1, suffix=[Upsample(adjust=(-1, 0))])
 
         # the 3rd yolo
         self.yolo3 = YoloLayer([0, 1, 2], nC)
@@ -98,13 +98,14 @@ class Darknet3(nn.Module):
 
     def forward(self, x: Tensor) -> list[Tensor] | Tensor:
         yolo: list[Tensor] = [None, None, None]
-        imgSize: int = x.shape[-1]
+        imgSize: tuple[int, int] = tuple((x.shape[-1], x.shape[-2]))
         yolo[2] = self.dnrl1(x)
         yolo[1] = self.dnrl2(yolo[2])
         temp: Tensor = self.dnrl3(yolo[1])
         yolo[0] = self.yolo1(self.py1(temp), imgSize)
         temp = self.dnl(torch.cat([self.cbu1(temp), yolo[1]], 1))
         yolo[1] = self.yolo2(self.py2(temp), imgSize)
+        print(self.cbu2(temp).shape, yolo[2].shape)
         yolo[2] = self.yolo3(self.py3(torch.cat([self.cbu2(temp), yolo[2]], 1)), imgSize)
         return yolo if self.training else torch.cat(yolo, 1)
 

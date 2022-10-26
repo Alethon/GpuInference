@@ -1,5 +1,5 @@
 classes=10
-useTiny=0
+useTiny=False
 dataPath=.,Lego
 names=data/obj.names
 backup=backup/
