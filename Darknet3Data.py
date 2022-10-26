@@ -1,4 +1,4 @@
-from genericpath import isfile
+import math
 import os
 import cv2
 import numpy as np
@@ -9,14 +9,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.utils.data import Dataset, DataLoader
 
 from utils import *
-from Darknet.Darknet3 import Darknet3, DarknetTiny3
 
-CLASS_NAMES = os.path.join('..', 'data', 'coco.names')
+CLASS_NAMES = os.path.join('.', 'data', 'coco.names')
 
-COCO = os.path.join('..', 'coco')
+COCO = os.path.join('.', 'coco')
 COCO_SUBSETS = os.path.join(COCO, 'subsets')
 
 COCO_IMAGES = os.path.join(COCO, 'images')
@@ -33,12 +31,24 @@ COCO_IMAGES_UNROOT = os.path.join('coco', 'images')
 
 IMAGES_VAL = os.path.join('images', 'val2014')
 
-WEIGHTS = os.path.join('..', 'weights')
+WEIGHTS = os.path.join('.', 'weights')
+
+def readDatasetInfo(path: str) -> dict[str, any]:
+    data: dict[str, str] = dict()
+    if os.path.exists(path) and os.path.isfile(path):
+        with open(path, 'r') as f:
+            data = { s[0].strip(): s[1].strip() for s in [l.split('=') for l in f.read().strip().splitlines()] if len(s) > 1 }
+    result: dict[str, any] = dict()
+    if 'classes' in data:
+        result['classes'] = int(data['classes'])
+    result['useTiny'] = bool(data['useTiny']) if 'useTiny' in data else False
+    result['dataPath'] = os.path.join(*data['dataPath'].split(',')) if 'dataPath' in data else os.path.join('.', 'Lego')
+    return result
 
 def getIntStrLabels(data: list[str]) -> list[tuple[int, str]]:
     return [(int(s[:i]), s[i + 1:]) for i, s in [(l.find(' '), l) for l in data]]
 
-class CocoSubset(Dataset):
+class CocoSubset:
     def __init__(self, imgSize, classList: list[str] = []) -> None:
         self.imgSize = imgSize
 
@@ -81,8 +91,6 @@ class CocoSubset(Dataset):
         
         self.images: list = []
         self.labels: list[Tensor] = []
-
-        # self._loadData()
     
     def _makeDirs(self) -> bool:
         result: bool = True
@@ -147,55 +155,81 @@ class CocoSubset(Dataset):
                     f5k.write(imagePath)
                 else:
                     fno5k.write(imagePath)
+
+class LegoData:
+    def __init__(self, path: str) -> None:
+        self.basePath: str = path
+        self.imagePath: str = os.path.join(self.basePath, 'images')
+        self.labelPath: str = os.path.join(self.basePath, 'labels')
+
+        labelPaths: list[str] = os.listdir(self.labelPath)
+        imagePaths: list[str] = [os.path.join(self.imagePath, f.replace('.txt', '.png')) for f in labelPaths]
+        labelPaths = [os.path.join(self.labelPath, f) for f in labelPaths]
+
+        self.labelPaths: list[str] = []
+        self.imagePaths: list[str] = []
+        self.labels: list[np.ndarray] = []
+        images: list[np.ndarray] = []
+
+        for imagePath, labelPath in zip(imagePaths, labelPaths):
+            if os.path.exists(imagePath) and os.path.isfile(imagePath) and os.path.isfile(labelPath):
+                self.labelPaths.append(labelPath)
+                self.imagePaths.append(imagePath)
+                image = cv2.imread(imagePath)
+                h, w, _ = image.shape
+                with open(labelPath, 'r') as f:
+                    lines = f.read().splitlines()
+                label: np.ndarray = np.array([l.split() for l in lines], dtype=np.float32)
+                label[:, 1] *= w
+                label[:, 2] *= h
+                label[:, 3] *= w
+                label[:, 4] *= h
+                if label.shape[0] > 0:
+                    self.labels.append(label)
+                    images.append(image)
+        
+        self.images: np.ndarray = np.ascontiguousarray(np.stack(images)[:, :, :, ::-1].transpose(0, 3, 1, 2), dtype=np.float32) / 255.0
+
+        self.sampleCount: int = len(self.labels)
+
+        self.batchSize: int = 1
+        self.samplesPerEpoch: int = self.sampleCount
+        self.batchCount: int = math.ceil(self.samplesPerEpoch / self.batchSize)
+
+    def __iter__(self):
+        self.count = -1
+        self.shuffled: np.ndarray = np.random.permutation(self.samplesPerEpoch) % self.sampleCount
+        return self
+
+    def rebatch(self, batchSize: int, reuseCount: int) -> None:
+        if reuseCount < 0:
+            reuseCount = 0
+        reuseCount += 1
+
+        self.batchSize = batchSize
+        self.samplesPerEpoch = reuseCount * self.sampleCount
+        self.batchCount = math.ceil(self.samplesPerEpoch / self.batchSize)
     
-    # def _loadData(self) -> None:
-    #     with open(self.trainvalno5k, 'r') as f:
-    #         data: list[str] = [i.replace('\n', '') for i in f.readlines()]
-    #     for d in data:
-    #         img = torch.from_numpy(cv2.imread(d))
-    #         self.images.append(F.interpolate(, , mode='bilinear'))
-    #         labelPath = d.replace(COCO_IMAGES_UNROOT, self.labelsDirUnroot).replace('.png', '.txt').replace('.jpg', '.txt')
-    #         if os.path.isfile(labelPath):
-    #             with open(labelPath, 'r') as f:
-    #                 labels0 = np.array([x.split() for x in f.read().splitlines()], dtype=np.float32)
-    #             labels0 = labels0[labels0[:, 0] < self.clsCount]
-    #             # Normalized xywh to pixel xyxy format
-    #             labels = labels0.copy()
-    #             labels[:, 1] = ratio * w * (labels0[:, 1] - labels0[:, 3] / 2) + padw
-    #             labels[:, 2] = ratio * h * (labels0[:, 2] - labels0[:, 4] / 2) + padh
-    #             labels[:, 3] = ratio * w * (labels0[:, 1] + labels0[:, 3] / 2) + padw
-    #             labels[:, 4] = ratio * h * (labels0[:, 2] + labels0[:, 4] / 2) + padh
+    def __next__(self) -> tuple[Tensor, Tensor, list[str]]:
+        self.count += 1
+        if self.count == self.batchCount:
+            raise StopIteration
         
+        ni: int = self.count * self.batchSize
+        nf: int = min((self.count + 1) * self.batchSize, self.samplesPerEpoch)
 
-
-
-class Darknet3User:
-    def __init__(self, model: (Darknet3 | DarknetTiny3 | tuple), classList: list[str]) -> None:
-        self.device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.nC: int = len(classList)
-        self.classList: list[str] = classList
-        if isinstance(model, Darknet3):
-            self.model: Darknet3 = model
-        elif isinstance(model, DarknetTiny3):
-            self.model: DarknetTiny3 = model
-        elif isinstance(model, tuple) and model[0] == 'Darknet3':
-            self.model: Darknet3 = Darknet3(self.nC)
-        elif isinstance(model, tuple) and model[0] == 'DarknetTiny3':
-            if len(model) == 3:
-                self.model: DarknetTiny3 = DarknetTiny3(self.nC, scale=float(model[2]))
-            else:
-                self.model: DarknetTiny3 = DarknetTiny3(self.nC)
-        else:
-            raise TypeError('Bad `model` passed to Darknet3User.')
+        labels: list[np.ndarray] = []
+        imagePaths: list[str] = []
+        for n in range(ni, nf):
+            i = self.shuffled[n]
+            label = self.labels[i]
+            labels.append(np.concatenate((np.zeros((len(label), 1), dtype=np.float32) + n - ni, label), 1))
+            imagePaths.append(self.imagePaths[i])
         
-        if isinstance(model, tuple):
-            weightfile = os.path.join(WEIGHTS, model[1])
-            if os.path.isfile(weightfile):
-                self.model.load_state_dict(torch.load(weightfile, map_location='cpu')['model'])
-        
-        self.model.to(self.device).eval()
-        if torch.cuda.is_available():
-            self.model.half()
+        return torch.from_numpy(self.images[self.shuffled[ni:nf]]), torch.from_numpy(np.concatenate(labels, 0)), imagePaths
 
 if __name__ == '__main__':
-    cs = CocoSubset(416, classList=['person', 'cat'])
+    # cs = CocoSubset(416, classList=['person', 'cat'])
+    ld = LegoData('Lego', 4, 1)
+    for i, (imgs, labels, _) in enumerate(ld):
+        print(imgs.shape, labels.shape)

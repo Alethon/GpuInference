@@ -35,8 +35,8 @@ class DarknetTiny3(nn.Module):
         self.py2 = nn.Sequential(DarknetTiny3Block(int(512 * scale) + 128, 256), ConvBn(256, icc, 1, 1))
         self.yolo2 = YoloLayer([0, 1, 2], nC)
 
-    def forward(self, x: Tensor) -> List[Tensor] | Tensor:
-        yolo: List[Tensor] = [None, None]
+    def forward(self, x: Tensor) -> list[Tensor] | Tensor:
+        yolo: list[Tensor] = [None, None]
         imgSize: int = x.shape[-1]
         yolo[1] = self.dntl1(x)
         temp: Tensor = self.dntl2(yolo[1])
@@ -96,8 +96,8 @@ class Darknet3(nn.Module):
                                  Darknet3Layer(256, 128, 2),
                                  ConvBn(256, icc, 1, 1))
 
-    def forward(self, x: Tensor) -> List[Tensor] | Tensor:
-        yolo: List[Tensor] = [None, None, None]
+    def forward(self, x: Tensor) -> list[Tensor] | Tensor:
+        yolo: list[Tensor] = [None, None, None]
         imgSize: int = x.shape[-1]
         yolo[2] = self.dnrl1(x)
         yolo[1] = self.dnrl2(yolo[2])

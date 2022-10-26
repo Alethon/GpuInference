@@ -30,6 +30,7 @@ class YoloLayer(nn.Module):
         self.createGrids(32, 1)
 
     def forward(self, x: Tensor, imgSize: int):
+        print(x.shape)
         bs, nG = x.shape[0], x.shape[-1]
         if self.imgSize != imgSize:
             self.createGrids(imgSize, nG)
