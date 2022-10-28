@@ -335,6 +335,7 @@ class Darknet3Trainer:
     
     def test(self, batchSize: int, confThresh: float = 0.5, nmsThresh: float = 0.4, iouThresh: float = 0.5) -> tuple:
         self.model.eval()
+        # self.model = self.model.eval()
         self.data.rebatch(batchSize, 0)
         mean_mAP, mean_R, mean_P, seen = 0.0, 0.0, 0.0, 0
         print('%11s' * 5 % ('Image', 'Total', 'P', 'R', 'mAP'))
@@ -343,10 +344,13 @@ class Darknet3Trainer:
         for (images, targets, _) in self.data:
             targets = targets.to(self.device)
             t = time()
-            output: Tensor = self.model(images.to(self.device))
+            with torch.no_grad():
+                output = self.model(images.to(self.device))
+            print(type(output))
             output = nonMaxSuppression(output, confThresh=confThresh, nmsThresh=nmsThresh)
 
             # Compute average precision for each sample
+            print(output)
             for si, detections in enumerate(output):
                 labels = targets[targets[:, 0] == si, 1:]
                 seen += 1
@@ -367,7 +371,7 @@ class Darknet3Trainer:
                     continue
                 else:
                     # Extract target boxes as (x1, y1, x2, y2)
-                    target_box = xywh2xyxy(labels[:, 1:5]) * img_size
+                    target_box = xywh2xyxy(labels[:, 1:5]) # * img_size
                     target_cls = labels[:, 0]
 
                     detected = []
@@ -402,7 +406,7 @@ class Darknet3Trainer:
                 mean_R = np.mean(mR)
                 mean_mAP = np.mean(mAPs)
             # Print image mAP and running mean mAP
-            print(('%11s%11s' + '%11.3g' * 4 + 's') % (seen, self.data.sampleCount, mean_P, mean_R, mean_mAP, time.time() - t))
+            print(('%11s%11s' + '%11.3g' * 4 + 's') % (seen, self.data.sampleCount, mean_P, mean_R, mean_mAP, time() - t))
         # Print mAP per class
         print('\nmAP Per Class:')
         for i in range(self.classCount):
@@ -416,10 +420,10 @@ class Darknet3Trainer:
         rloss = defaultdict(float)
         t = time()
         for i, (images, targets, _) in enumerate(self.data):
-            print(images.shape)
+            # print(images.shape)
             targetCount: int = targets.shape[0]
             prediction: list[Tensor] = self.model(images.to(self.device))
-            targetList = buildTargets(self.yolos, targets, prediction)
+            targetList = buildTargets(self.yolos, targets.to(self.device), prediction)
             loss, loss_dict = computeLoss(prediction, targetList)
             loss.backward()
             for key, val in loss_dict.items():
@@ -457,5 +461,6 @@ class Darknet3Trainer:
 if __name__ == '__main__':
     infoPath = os.path.join('.', 'cfg', 'obj.data')
     dt = Darknet3Trainer(infoPath)
-    print('initialized')
-    dt.trainThenTest(1, 1, 3)
+    dt.loadCheckpoint(dt.latestWeightsPath)
+    # dt.trainThenTest(25, 11, 3)
+    dt.test(11)

@@ -157,10 +157,12 @@ class CocoSubset:
                     fno5k.write(imagePath)
 
 class LegoData:
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, shape: tuple[float, float] = (416, 416)) -> None:
         self.basePath: str = path
         self.imagePath: str = os.path.join(self.basePath, 'images')
         self.labelPath: str = os.path.join(self.basePath, 'labels')
+
+        self.shape: tuple[float, float] = shape
 
         labelPaths: list[str] = os.listdir(self.labelPath)
         imagePaths: list[str] = [os.path.join(self.imagePath, f.replace('.txt', '.png')) for f in labelPaths]
@@ -176,14 +178,13 @@ class LegoData:
                 self.labelPaths.append(labelPath)
                 self.imagePaths.append(imagePath)
                 image = cv2.imread(imagePath)
-                h, w, _ = image.shape
                 with open(labelPath, 'r') as f:
                     lines = f.read().splitlines()
                 label: np.ndarray = np.array([l.split() for l in lines], dtype=np.float32)
-                label[:, 1] *= w
-                label[:, 2] *= h
-                label[:, 3] *= w
-                label[:, 4] *= h
+                # label[:, 1] *= self.shape[0]
+                # label[:, 2] *= self.shape[1]
+                # label[:, 3] *= self.shape[0]
+                # label[:, 4] *= self.shape[1]
                 if label.shape[0] > 0:
                     self.labels.append(label)
                     images.append(image)
@@ -226,7 +227,14 @@ class LegoData:
             labels.append(np.concatenate((np.zeros((len(label), 1), dtype=np.float32) + n - ni, label), 1))
             imagePaths.append(self.imagePaths[i])
         
-        return torch.from_numpy(self.images[self.shuffled[ni:nf]]), torch.from_numpy(np.concatenate(labels, 0)), imagePaths
+        with torch.no_grad():
+            images: Tensor = torch.from_numpy(self.images[self.shuffled[ni:nf]])
+            images = F.interpolate(images, scale_factor=(self.shape[1] / images.shape[-2], self.shape[0]/images.shape[-1]))
+        # print(images.shape)
+        return images, torch.from_numpy(np.concatenate(labels, 0)), imagePaths
+    
+    def __len__(self):
+        return self.batchCount
 
 if __name__ == '__main__':
     # cs = CocoSubset(416, classList=['person', 'cat'])

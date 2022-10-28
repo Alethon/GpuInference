@@ -27,10 +27,11 @@ class YoloLayer(nn.Module):
         self.nC = nC  # number of classes (80)
         # print('nC: ' + str(self.nC))
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # print(self.device)
         self.createGrids(32, 1)
 
     def forward(self, x: Tensor, imgSize: int):
-        print(x.shape)
+        # print(x.shape)
         bs, nG = x.shape[0], x.shape[-1]
         if self.imgSize != imgSize:
             self.createGrids(imgSize, nG)
