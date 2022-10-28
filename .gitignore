@@ -26,4 +26,5 @@ coco/
 yolov3/
 *.pt
 Lego/images/*
+Lego/labels/*
 *.zip

@@ -41,7 +41,7 @@ def readDatasetInfo(path: str) -> dict[str, any]:
     result: dict[str, any] = dict()
     if 'classes' in data:
         result['classes'] = int(data['classes'])
-    result['useTiny'] = True if 'useTiny' in data and data['useTiny'] == '1' else False
+    result['useTiny'] = bool(data['useTiny']) if 'useTiny' in data else False
     result['dataPath'] = os.path.join(*data['dataPath'].split(',')) if 'dataPath' in data else os.path.join('.', 'Lego')
     return result
 
@@ -230,7 +230,6 @@ class LegoData:
 
 if __name__ == '__main__':
     # cs = CocoSubset(416, classList=['person', 'cat'])
-    ld = LegoData('Lego')
-    ld.rebatch(4, 1)
+    ld = LegoData('Lego', 4, 1)
     for i, (imgs, labels, _) in enumerate(ld):
         print(imgs.shape, labels.shape)

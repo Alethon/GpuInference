@@ -30,12 +30,10 @@ def buildTargets(yoloLayers: list[YoloLayer], targets: Tensor, predictions: list
     tconf: list[Tensor] = []
     indices: list[tuple[Tensor, Tensor, Tensor, Tensor]] = []
     for i, layer in enumerate(yoloLayers):
-        nGx: Tensor = layer.nGx  # grid size
-        nGy: Tensor = layer.nGy  # grid size
+        nG: Tensor = layer.nG  # grid size
         anchorVector: Tensor = layer.anchorVector
         # iou of targets-anchors
-        gwh = torch.cat(((targets[:, 4].cuda() * nGx).cuda(), (targets[:, 5].cuda() * nGy).cuda()), 1)
-        # gwh = targets[:, 4:6] * nG
+        gwh = targets[:, 4:6] * nG
         iou = [whIou(x, gwh) for x in anchorVector]
         iou, a = torch.stack(iou, 0).max(0)  # best iou and anchor
         # reject below threshold ious (OPTIONAL)
@@ -47,8 +45,7 @@ def buildTargets(yoloLayers: list[YoloLayer], targets: Tensor, predictions: list
             t = targets
         # Indices
         b, c = t[:, 0:2].long().t()  # target image, class
-        gxy = torch.cat((t[:, 2] * nGx, t[:, 3] * nGy), 1)
-        # gxy = t[:, 2:4] * nG
+        gxy = t[:, 2:4] * nG
         gi, gj = gxy.long().t()  # grid_i, grid_j
         indices.append((b, a, gj, gi))
         # XY coordinates
