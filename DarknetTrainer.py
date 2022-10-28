@@ -419,7 +419,7 @@ class Darknet3Trainer:
         rloss = defaultdict(float)
         t = time()
         for i, (images, targets, _) in enumerate(self.data):
-            print(images.shape)
+            # print(images.shape)
             targetCount: int = targets.shape[0]
             prediction: list[Tensor] = self.model(images.to(self.device))
             targetList = buildTargets(self.yolos, targets, prediction)

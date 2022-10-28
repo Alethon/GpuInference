@@ -105,7 +105,7 @@ class Darknet3(nn.Module):
         yolo[0] = self.yolo1(self.py1(temp), imgSize)
         temp = self.dnl(torch.cat([self.cbu1(temp), yolo[1]], 1))
         yolo[1] = self.yolo2(self.py2(temp), imgSize)
-        print(self.cbu2(temp).shape, yolo[2].shape)
+        # print(self.cbu2(temp).shape, yolo[2].shape)
         yolo[2] = self.yolo3(self.py3(torch.cat([self.cbu2(temp), yolo[2]], 1)), imgSize)
         return yolo if self.training else torch.cat(yolo, 1)
 
