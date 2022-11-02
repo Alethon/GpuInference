@@ -15,14 +15,14 @@ class Upsample(nn.Module):
         return F.interpolate(x, scale_factor=self.scaleFactor, mode=self.mode)
 
 class YoloLayer(nn.Module):
-    div = 1. # 416.
+    div = 416.0
     coordinates = [(10 / div, 13 / div), (16 / div, 30 / div), (33 / div, 23 / div),
                    (30 / div, 61 / div), (62 / div, 45 / div), (59 / div, 119 / div),
                    (116 / div, 90 / div), (156 / div, 198 / div), (373 / div, 326 / div)]
     
     def __init__(self, mask: list[int], nC: int):
         super().__init__()
-        self.anchors = torch.FloatTensor([YoloLayer.coordinates[m] for m in mask])
+        self.fAnchors = torch.FloatTensor([YoloLayer.coordinates[m] for m in mask])
         self.nA = len(mask)  # number of anchors (3)
         self.nC = nC  # number of classes (80)
         # print('nC: ' + str(self.nC))
@@ -60,6 +60,7 @@ class YoloLayer(nn.Module):
         self.gridXy = torch.stack((gridX, gridY), 4).to(self.device)
 
         # build wh gains
+        self.anchors = self.imgSize * self.fAnchors
         self.anchorVector = self.anchors.to(self.device) / self.stride
         self.anchorWh = self.anchorVector.view(1, self.nA, 1, 1, 2).to(self.device)
         self.nG = torch.FloatTensor([nG]).to(self.device)

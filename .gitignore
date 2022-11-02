@@ -27,3 +27,4 @@ yolov3/
 *.pt
 Lego/images/*
 *.zip
+Lego/segments/*

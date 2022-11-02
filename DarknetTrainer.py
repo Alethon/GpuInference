@@ -8,70 +8,91 @@ from torch import Tensor
 
 from Darknet3Data import *
 from Darknet.Darknet3 import *
+from utils.datasets import LoadImagesAndLabels
 
-# intersection over union area
-def whIou(box1: Tensor, box2: Tensor) -> Tensor:
+torch.backends.cudnn.benchmark = True
+
+def wh_iou(box1, box2):
     # Returns the IoU of wh1 to wh2. wh1 is 2, wh2 is nx2
     box2 = box2.t()
+
     # w, h = box1
     w1, h1 = box1[0], box1[1]
     w2, h2 = box2[0], box2[1]
+
     # Intersection area
     inter_area = torch.min(w1, w2) * torch.min(h1, h2)
+
     # Union Area
     union_area = (w1 * h1 + 1e-16) + w2 * h2 - inter_area
+
     return inter_area / union_area  # iou
 
-def buildTargets(yoloLayers: list[YoloLayer], targets: Tensor, predictions: list[Tensor]) -> tuple[list[Tensor], list[Tensor], list[Tensor], list[Tensor], list[tuple[Tensor, Tensor, Tensor, Tensor]]]:
+# def build_targets(model, targets, pred):
+def build_targets(yolo_layers: list[YoloLayer], targets, pred):
+    # targets = [image, class, x, y, w, h]
+    # if isinstance(model, nn.DataParallel):
+    #     model = model.module
+    # yolo_layers = get_yolo_layers(model)
+
     # anchors = closest_anchor(model, targets)  # [layer, anchor, i, j]
-    txy: list[Tensor] = []
-    twh: list[Tensor] = []
-    tcls: list[Tensor] = []
-    tconf: list[Tensor] = []
-    indices: list[tuple[Tensor, Tensor, Tensor, Tensor]] = []
-    for i, layer in enumerate(yoloLayers):
-        nG: Tensor = layer.nG  # grid size
-        anchorVector: Tensor = layer.anchorVector
+    txy, twh, tcls, tconf, indices = [], [], [], [], []
+    for i, layer in enumerate(yolo_layers):
+        # nG = model.module_list[layer][0].nG  # grid size
+        # anchor_vec = model.module_list[layer][0].anchor_vec
+        nG = layer.nG  # grid size
+        anchor_vec = layer.anchorVector
+
         # iou of targets-anchors
         gwh = targets[:, 4:6] * nG
-        iou = [whIou(x, gwh) for x in anchorVector]
+        iou = [wh_iou(x, gwh) for x in anchor_vec]
         iou, a = torch.stack(iou, 0).max(0)  # best iou and anchor
+
         # reject below threshold ious (OPTIONAL)
         reject = True
         if reject:
-            j = iou > 0.01
+            # j = iou > 0.01
+            j = iou > 0.05
             t, a, gwh = targets[j], a[j], gwh[j]
         else:
             t = targets
+
         # Indices
         b, c = t[:, 0:2].long().t()  # target image, class
         gxy = t[:, 2:4] * nG
         gi, gj = gxy.long().t()  # grid_i, grid_j
         indices.append((b, a, gj, gi))
+
         # XY coordinates
         txy.append(gxy - gxy.floor())
+
         # Width and height
-        twh.append(torch.log(gwh / anchorVector[a]))  # yolo method
+        twh.append(torch.log(gwh / anchor_vec[a]))  # yolo method
         # twh.append(torch.sqrt(gwh / anchor_vec[a]) / 2)  # power method
+
         # Class
         tcls.append(c)
+
         # Conf
-        tci = torch.zeros_like(predictions[i][..., 0])
+        tci = torch.zeros_like(pred[i][..., 0])
         tci[b, a, gj, gi] = 1  # conf
         tconf.append(tci)
+
     return txy, twh, tcls, tconf, indices
 
-def computeLoss(p: list[Tensor], targets: tuple[list[Tensor], list[Tensor], list[Tensor], list[Tensor], list[tuple[Tensor, Tensor, Tensor, Tensor]]]):  # predictions, targets
+def compute_loss(p, targets):  # predictions, targets
     FT = torch.cuda.FloatTensor if p[0].is_cuda else torch.FloatTensor
     loss, lxy, lwh, lcls, lconf = FT([0]), FT([0]), FT([0]), FT([0]), FT([0])
     txy, twh, tcls, tconf, indices = targets
     MSE = nn.MSELoss()
     CE = nn.CrossEntropyLoss()
     BCE = nn.BCEWithLogitsLoss()
+
     # Compute losses
     # gp = [x.numel() for x in tconf]  # grid points
     for i, pi0 in enumerate(p):  # layer i predictions, i
         b, a, gj, gi = indices[i]  # image, anchor, gridx, gridy
+
         # Compute losses
         k = 1  # nT / bs
         if len(b) > 0:
@@ -79,19 +100,23 @@ def computeLoss(p: list[Tensor], targets: tuple[list[Tensor], list[Tensor], list
             lxy += k * MSE(torch.sigmoid(pi[..., 0:2]), txy[i])  # xy
             lwh += k * MSE(pi[..., 2:4], twh[i])  # wh
             lcls += (k / 4) * CE(pi[..., 5:], tcls[i])
+
         # pos_weight = FT([gp[i] / min(gp) * 4.])
         # BCE = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         lconf += (k * 64) * BCE(pi0[..., 4], tconf[i])
     loss = lxy + lwh + lconf + lcls
+
     # Add to dictionary
     d = defaultdict(float)
     losses = [loss.item(), lxy.item(), lwh.item(), lconf.item(), lcls.item()]
     for name, x in zip(['total', 'xy', 'wh', 'conf', 'cls'], losses):
         d[name] = x
+
     return loss, d
 
-def xywh2xyxy(x: Tensor) -> Tensor:
-    y = torch.zeros_like(x)
+def xywh2xyxy(x):
+    # Convert bounding box format from [x, y, w, h] to [x1, y1, x2, y2]
+    y = torch.zeros_like(x) if x.dtype is torch.float32 else np.zeros_like(x)
     y[:, 0] = (x[:, 0] - x[:, 2] / 2)
     y[:, 1] = (x[:, 1] - x[:, 3] / 2)
     y[:, 2] = (x[:, 0] + x[:, 2] / 2)
@@ -124,7 +149,7 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
 
     return inter_area / union_area  # iou
 
-def nonMaxSuppression(prediction: Tensor, confThresh: float = 0.5, nmsThresh: float = 0.4):
+def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
     """
     Removes detections with lower object confidence score than 'conf_thres'
     Non-Maximum Suppression to further filter detections.
@@ -133,9 +158,10 @@ def nonMaxSuppression(prediction: Tensor, confThresh: float = 0.5, nmsThresh: fl
     """
     output = [None for _ in range(len(prediction))]
     for image_i, pred in enumerate(prediction):
+
         # Filter out confidence scores below threshold
         class_prob, class_pred = torch.max(F.softmax(pred[:, 5:], 1), 1)
-        v = pred[:, 4] > confThresh
+        v = pred[:, 4] > conf_thres
         v = v.nonzero().squeeze()
         if len(v.shape) == 0:
             v = v.unsqueeze(0)
@@ -172,25 +198,37 @@ def nonMaxSuppression(prediction: Tensor, confThresh: float = 0.5, nmsThresh: fl
                 while len(ind):
                     j = ind[0]
                     det_max.append(dc[j:j + 1])  # save highest conf detection
-                    reject = bbox_iou(dc[j], dc[ind]) > nmsThresh
+                    reject = bbox_iou(dc[j], dc[ind]) > nms_thres
                     [ind.pop(i) for i in reversed(reject.nonzero())]
+                # while dc.shape[0]:  # SLOWER METHOD
+                #     det_max.append(dc[:1])  # save highest conf detection
+                #     if len(dc) == 1:  # Stop if we're at the last detection
+                #         break
+                #     iou = bbox_iou(dc[0], dc[1:])  # iou with other boxes
+                #     dc = dc[1:][iou < nms_thres]  # remove ious > threshold
+
+                # Image      Total          P          R        mAP
+                #  4964       5000      0.629      0.594      0.586
 
             elif nms_style == 'AND':  # requires overlap, single boxes erased
                 while len(dc) > 1:
                     iou = bbox_iou(dc[0], dc[1:])  # iou with other boxes
                     if iou.max() > 0.5:
                         det_max.append(dc[:1])
-                    dc = dc[1:][iou < nmsThresh]  # remove ious > threshold
+                    dc = dc[1:][iou < nms_thres]  # remove ious > threshold
 
             elif nms_style == 'MERGE':  # weighted mixture box
                 while len(dc) > 0:
                     iou = bbox_iou(dc[0], dc[0:])  # iou with other boxes
-                    i = iou > nmsThresh
+                    i = iou > nms_thres
 
                     weights = dc[i, 4:5] * dc[i, 5:6]
                     dc[0, :4] = (weights * dc[i, :4]).sum(0) / weights.sum()
                     det_max.append(dc[:1])
-                    dc = dc[iou < nmsThresh]
+                    dc = dc[iou < nms_thres]
+
+                # Image      Total          P          R        mAP
+                #  4964       5000      0.633      0.598      0.589  # normal
 
             if len(det_max) > 0:
                 det_max = torch.cat(det_max)
@@ -199,7 +237,7 @@ def nonMaxSuppression(prediction: Tensor, confThresh: float = 0.5, nmsThresh: fl
 
     return output
 
-def computeAp(recall, precision):
+def compute_ap(recall, precision):
     """ Compute the average precision, given the recall and precision curves.
     Source: https://github.com/rbgirshick/py-faster-rcnn.
     # Arguments
@@ -226,7 +264,7 @@ def computeAp(recall, precision):
     ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
     return ap
 
-def apPerClass(tp, conf, pred_cls, target_cls):
+def ap_per_class(tp, conf, pred_cls, target_cls):
     """ Compute the average precision, given the recall and precision curves.
     Source: https://github.com/rafaelpadilla/Object-Detection-Metrics.
     # Arguments
@@ -237,6 +275,7 @@ def apPerClass(tp, conf, pred_cls, target_cls):
     # Returns
         The average precision as computed in py-faster-rcnn.
     """
+
     # Sort by objectness
     i = np.argsort(-conf)
     tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
@@ -271,7 +310,7 @@ def apPerClass(tp, conf, pred_cls, target_cls):
             p.append(tpc[-1] / (tpc[-1] + fpc[-1]))
 
             # AP from recall-precision curve
-            ap.append(computeAp(recall_curve, precision_curve))
+            ap.append(compute_ap(recall_curve, precision_curve))
 
     return np.array(ap), unique_classes.astype('int32'), np.array(r), np.array(p)
 
@@ -282,28 +321,37 @@ class Darknet3Trainer:
         # basic
         self.device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.classCount: int = info['classes']
-        self.weightsPath: str = WEIGHTS
-        self.latestWeightsPath: str = os.path.join(self.weightsPath, 'latest.pt')
-        self.bestWeightsPath: str = os.path.join(self.weightsPath, 'best.pt')
-        if not os.path.isdir(self.weightsPath):
-            os.makedirs(self.weightsPath)
         
         # data
         self.data: LegoData = LegoData(info['dataPath'])
+        # self.data: LoadImagesAndLabels = LoadImagesAndLabels('./coco/subsets/0-19/trainvalno5k.txt', 'subsets/0-19/labels', self.classCount, 12, 416, augment=True)
         
         # model
         if info['useTiny']:
             self.model: DarknetTiny3 = DarknetTiny3(self.classCount).to(self.device)
             self.yolos: list[YoloLayer] = [self.model.yolo1, self.model.yolo2]
+            self.weightsPath: str = WEIGHTS + '_tiny'
         else:
             self.model: Darknet3 = Darknet3(self.classCount).to(self.device)
             self.yolos: list[YoloLayer] = [self.model.yolo1, self.model.yolo2, self.model.yolo3]
+            self.weightsPath: str = WEIGHTS
 
+        self.latestWeightsPath: str = os.path.join(self.weightsPath, 'latest.pt')
+        self.bestWeightsPath: str = os.path.join(self.weightsPath, 'best.pt')
+        if not os.path.isdir(self.weightsPath):
+            os.makedirs(self.weightsPath)
+        
         # training variables
         self.epoch: int = 0
-        self.lr: float = 0.001
+        self.lr0: float = 0.001
+        self.lr: float = self.lr0
         self.bestLoss: float = float('inf')
         self.optimizer: torch.optim.Optimizer = torch.optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9)
+        self.nBurnIn = 1000
+    
+    def updateOptimizer(self) -> None:
+        for x in self.optimizer.param_groups:
+            x['lr'] = self.lr
     
     def saveCheckpoint(self, checkPointPath: str) -> None:
         self.model = self.model.cpu()
@@ -311,14 +359,18 @@ class Darknet3Trainer:
             'epoch': self.epoch,
             'bestLoss': self.bestLoss,
             'model': self.model.state_dict(),
-            'optimizer': self.optimizer.state_dict()
+            'optimizer': self.optimizer.state_dict(),
+            'lr': self.lr
         }, checkPointPath)
         self.model = self.model.to(self.device)
 
-    def loadCheckpoint(self, checkPointPath: str) -> None:
+    def loadCheckpoint(self, checkPointPath: str, lrOverride: float = None) -> None:
         self.model = self.model.cpu()
         checkpoint: dict = torch.load(checkPointPath)
         self.model.load_state_dict(checkpoint['model'])
+        self.lr = checkpoint['lr']
+        if lrOverride is not None:
+            self.lr = lrOverride
         self.optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, self.model.parameters()), lr=self.lr, momentum=0.9)
         self.epoch = checkpoint['epoch']
         if checkpoint['optimizer'] is not None:
@@ -328,29 +380,26 @@ class Darknet3Trainer:
         self.model = self.model.to(self.device)
     
     def updateLearningRate(self) -> None:
-        if self.epoch % 25 == 0:
-            self.lr /= 10
-        for x in self.optimizer.param_groups:
-            x['lr'] = self.lr
+        if self.epoch % 50 == 0:
+            self.lr /= 2
+        self.updateOptimizer()
     
     def test(self, batchSize: int, confThresh: float = 0.5, nmsThresh: float = 0.4, iouThresh: float = 0.5) -> tuple:
         self.model.eval()
-        # self.model = self.model.eval()
-        self.data.rebatch(batchSize, 0)
+        self.data.rebatch(False, batchSize, 0, segmentSize=(416, 416))
         mean_mAP, mean_R, mean_P, seen = 0.0, 0.0, 0.0, 0
         print('%11s' * 5 % ('Image', 'Total', 'P', 'R', 'mAP'))
         mP, mR, mAPs, TP = [], [], [], []
         AP_accum, AP_accum_count = np.zeros(self.classCount), np.zeros(self.classCount)
+        # for (images, targets, _, _) in self.data:
         for (images, targets, _) in self.data:
             targets = targets.to(self.device)
             t = time()
             with torch.no_grad():
                 output = self.model(images.to(self.device))
-            print(type(output))
-            output = nonMaxSuppression(output, confThresh=confThresh, nmsThresh=nmsThresh)
-
+            output = non_max_suppression(output, conf_thres=confThresh, nms_thres=nmsThresh)
             # Compute average precision for each sample
-            print(output)
+            # print(output)
             for si, detections in enumerate(output):
                 labels = targets[targets[:, 0] == si, 1:]
                 seen += 1
@@ -387,7 +436,7 @@ class Darknet3Trainer:
                             correct.append(0)
 
                 # Compute Average Precision (AP) per class
-                AP, AP_class, R, P = apPerClass(tp=np.array(correct),
+                AP, AP_class, R, P = ap_per_class(tp=np.array(correct),
                                                 conf=detections[:, 4].cpu().numpy(),
                                                 pred_cls=detections[:, 6].cpu().numpy(),
                                                 target_cls=target_cls.cpu().numpy())
@@ -406,7 +455,8 @@ class Darknet3Trainer:
                 mean_R = np.mean(mR)
                 mean_mAP = np.mean(mAPs)
             # Print image mAP and running mean mAP
-            print(('%11s%11s' + '%11.3g' * 4 + 's') % (seen, self.data.sampleCount, mean_P, mean_R, mean_mAP, time() - t))
+            # print(('%11s%11s' + '%11.3g' * 4 + 's') % (seen, self.data.sampleCount, mean_P, mean_R, mean_mAP, time() - t))
+            print(('%11s%11s' + '%11.3g' * 4 + 's') % (seen, len(self.data), mean_P, mean_R, mean_mAP, time() - t))
         # Print mAP per class
         print('\nmAP Per Class:')
         for i in range(self.classCount):
@@ -419,12 +469,18 @@ class Darknet3Trainer:
         self.updateLearningRate()
         rloss = defaultdict(float)
         t = time()
+        # for i, (images, targets, _, _) in enumerate(self.data):
         for i, (images, targets, _) in enumerate(self.data):
-            # print(images.shape)
+            # print(images.shape, targets.shape)
+            # print(targets)
             targetCount: int = targets.shape[0]
+            if (self.epoch == 0) and (i <= self.nBurnIn):
+                self.nBurnIn = min(self.nBurnIn, len(self.data))
+                self.lr = self.lr0 * ((i + 1) / self.nBurnIn) ** 4
+                self.updateLearningRate()
             prediction: list[Tensor] = self.model(images.to(self.device))
-            targetList = buildTargets(self.yolos, targets.to(self.device), prediction)
-            loss, loss_dict = computeLoss(prediction, targetList)
+            targetList = build_targets(self.yolos, targets.to(self.device), prediction)
+            loss, loss_dict = compute_loss(prediction, targetList)
             loss.backward()
             for key, val in loss_dict.items():
                 rloss[key] = (rloss[key] * i + val) / (i + 1)
@@ -445,22 +501,28 @@ class Darknet3Trainer:
             if self.epoch > 0 and self.epoch % 5 == 0:
                 shutil.copy(self.latestWeightsPath, os.path.join(self.weightsPath, 'backup{}.pt'.format(self.epoch)))
     
-    def trainEpochs(self, epochCount: int, batchSize: int, reuseCount: int, save: bool = True) -> None:
+    def trainEpochs(self, epochCount: int, batchSize: int, batchCount: int, save: bool = True) -> None:
         if epochCount <= 0:
             return
         self.model.train()
-        self.data.rebatch(batchSize, reuseCount)
+        self.data.rebatch(True, batchSize, batchCount, segmentSize=(416, 416))
         for _ in range(epochCount):
             self._trainEpoch(save=save)
     
-    def trainThenTest(self, epochCount: int, batchSize: int, reuseCount: int, save: bool = True) -> None:
-        self.trainEpochs(epochCount, batchSize, reuseCount, save=save)
+    def trainThenTest(self, epochCount: int, batchSize: int, batchCount: int, save: bool = True) -> None:
+        self.trainEpochs(epochCount, batchSize, batchCount, save=save)
         with torch.no_grad():
-            self.test(batchSize)
+            # self.test(batchSize)
+            self.test(1)
 
 if __name__ == '__main__':
     infoPath = os.path.join('.', 'cfg', 'obj.data')
+    # infoPath = os.path.join('.', 'cfg', 'coco-0-19.data')
     dt = Darknet3Trainer(infoPath)
-    dt.loadCheckpoint(dt.latestWeightsPath)
-    # dt.trainThenTest(25, 11, 3)
-    dt.test(11)
+    # dt.loadCheckpoint(dt.latestWeightsPath, lrOverride=0.01)
+    # dt.loadCheckpoint(dt.latestWeightsPath)
+    # dt.loadCheckpoint(dt.bestWeightsPath)
+    # dt.test(1)
+    # for i in range(3):
+    #     dt.trainThenTest(10, 12, 2000)
+    dt.trainThenTest(20, 12, 2000)
