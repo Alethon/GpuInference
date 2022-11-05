@@ -14,8 +14,7 @@ from Darknet.Darknet3 import *
 torch.backends.cudnn.benchmark = True
 
 class Darknet3Trainer:
-    def __init__(self, datasetInfoPath: str, useOld: bool = False) -> None:
-        self.useOld: bool = useOld
+    def __init__(self, datasetInfoPath: str) -> None:
         info: dict[str, any] = readDatasetInfo(datasetInfoPath)
         
         # basic
@@ -147,15 +146,20 @@ class Darknet3Trainer:
         ui = -1
         t = time()
         for i, (images, targets, _) in enumerate(self.data):
-            targets = targets.to(self.device)
+            # print(time() - t)
             targetCount: int = targets.shape[0]
             if targetCount == 0:
                 continue
             if (self.epoch == 1) and (i <= self.nBurnIn):
                 self.lr = self.lr0 * ((i + 1) / self.nBurnIn) ** 4
                 self.updateLearningRate()
-            prediction: list[Tensor] = self.model(images.to(self.device))
-            targetList = build_targets([self.model.yolo1, self.model.yolo2, self.model.yolo3], targets, prediction)
+            # t = time()
+            targets = targets.to(self.device)
+            images = images.to(self.device)
+            # print(time() - t)
+            # t = time()
+            prediction: list[Tensor] = self.model(images)
+            targetList = build_targets(self.yolos, targets, prediction)
             loss, loss_dict = compute_loss(prediction, targetList)
             loss.backward()
             self.optimizer.step()
@@ -196,8 +200,8 @@ class Darknet3Trainer:
 if __name__ == '__main__':
     infoPath = os.path.join('.', 'cfg', 'obj.data')
     dt = Darknet3Trainer(infoPath)
-    dt.loadCheckpoint(dt.latestWeightsPath)
+    # dt.loadCheckpoint(dt.latestWeightsPath)
     # dt.loadCheckpoint(dt.bestWeightsPath)
-    dt.test(1)
+    # dt.test(1)
     while True:
         dt.trainThenTest(1, 12, 200)

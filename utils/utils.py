@@ -10,7 +10,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from utils import torch_utils
-from ..Darknet.YOLOv3 import YoloLayer
 
 # Set printoptions
 torch.set_printoptions(linewidth=1320, precision=5, profile='long')
@@ -330,7 +329,7 @@ def build_targets_old(model, targets, pred):
     return txy, twh, tcls, tconf, indices
 
 
-def build_targets(yolo_layers: list[YoloLayer], targets, pred):
+def build_targets(yolo_layers: list, targets, pred):
     txy, twh, tcls, tconf, indices = [], [], [], [], []
     for i, layer in enumerate(yolo_layers):
         nG = layer.nG  # grid size
