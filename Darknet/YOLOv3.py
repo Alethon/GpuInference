@@ -15,29 +15,27 @@ class Upsample(nn.Module):
         return F.interpolate(x, scale_factor=self.scaleFactor, mode=self.mode)
 
 class YoloLayer(nn.Module):
-    div = 416.0
+    div = 1.0 #416.0
     coordinates = [(10 / div, 13 / div), (16 / div, 30 / div), (33 / div, 23 / div),
                    (30 / div, 61 / div), (62 / div, 45 / div), (59 / div, 119 / div),
                    (116 / div, 90 / div), (156 / div, 198 / div), (373 / div, 326 / div)]
     
     def __init__(self, mask: list[int], nC: int):
         super().__init__()
-        self.fAnchors = torch.FloatTensor([YoloLayer.coordinates[m] for m in mask])
+        self.anchors = torch.FloatTensor([YoloLayer.coordinates[m] for m in mask])
         self.nA = len(mask)  # number of anchors (3)
         self.nC = nC  # number of classes (80)
-        # print('nC: ' + str(self.nC))
+        self.imgSize: int = 0
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # print(self.device)
         self.createGrids(32, 1)
 
     def forward(self, x: Tensor, imgSize: int):
-        # print(x.shape)
         bs, nG = x.shape[0], x.shape[-1]
         if self.imgSize != imgSize:
             self.createGrids(imgSize, nG)
 
         # x.view(bs, 255, 13, 13) -- > (bs, 3, 13, 13, 85)  # (bs, anchors, grid, grid, classes + xywh)
-        x = x.view(bs, self.nA, self.nC + 5, nG, nG).permute(0, 1, 3, 4, 2).contiguous().to(self.device)  # prediction
+        x = x.view(bs, self.nA, self.nC + 5, nG, nG).permute(0, 1, 3, 4, 2).contiguous() #.to(self.device)  # prediction
 
         if self.training:
             return x
@@ -60,7 +58,6 @@ class YoloLayer(nn.Module):
         self.gridXy = torch.stack((gridX, gridY), 4).to(self.device)
 
         # build wh gains
-        self.anchors = self.imgSize * self.fAnchors
         self.anchorVector = self.anchors.to(self.device) / self.stride
         self.anchorWh = self.anchorVector.view(1, self.nA, 1, 1, 2).to(self.device)
         self.nG = torch.FloatTensor([nG]).to(self.device)

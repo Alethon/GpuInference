@@ -8,6 +8,7 @@ from Darknet.ResidualBlocks import *
 from Darknet.Layers import *
 
 from Darknet.YOLOv3 import *
+from models import YOLOLayer
 
 class DarknetTiny3(nn.Module):
     def __init__(self, nC: int, scale: float = 1.0) -> None:
@@ -51,50 +52,50 @@ class Darknet3(nn.Module):
         icc = 3 * nC + 15
 
         # intermediate result
-        self.dnrl1 = nn.Sequential(ConvBnLeaky(3, 32, 3, 1, 1),
+        self.dnrl1 = nn.Sequential(ConvBnLeaky(3, 16, 3, 1, 1),
+                                   ConvBnLeaky(16, 32, 3, 2, 1),
+                                   Darknet3ResidualLayer(32, 16, 1),
                                    ConvBnLeaky(32, 64, 3, 2, 1),
-                                   Darknet3ResidualLayer(64, 32, 1),
+                                   Darknet3ResidualLayer(64, 32, 2),
                                    ConvBnLeaky(64, 128, 3, 2, 1),
-                                   Darknet3ResidualLayer(128, 64, 2),
-                                   ConvBnLeaky(128, 256, 3, 2, 1),
-                                   Darknet3ResidualLayer(256, 128, 8))
+                                   Darknet3ResidualLayer(128, 64, 8))
         
         # intermediate result
-        self.dnrl2 = Darknet3ResidualLayer(512, 256, 8, prefix=[ConvBnLeaky(256, 512, 3, 2, 1)])
+        self.dnrl2 = Darknet3ResidualLayer(256, 128, 8, prefix=[ConvBnLeaky(128, 256, 3, 2, 1)])
 
         # intermediate result
-        self.dnrl3 = nn.Sequential(ConvBnLeaky(512, 1024, 3, 2, 1),
-                                   Darknet3ResidualLayer(1024, 512, 4),
-                                   Darknet3Layer(1024, 512, 4),
-                                   ConvBnLeaky(1024, 512, 1, 1))
+        self.dnrl3 = nn.Sequential(ConvBnLeaky(256, 512, 3, 2, 1),
+                                   Darknet3ResidualLayer(512, 256, 4),
+                                   Darknet3Layer(512, 256, 4),
+                                   ConvBnLeaky(512, 256, 1, 1))
         
         # the 1st yolo
         self.yolo1 = YoloLayer([6, 7, 8], nC)
-        self.py1 = nn.Sequential(ConvBnLeaky(512, 1024, 3, 1, 1),
-                                 ConvBn(1024, icc, 1, 1))
-
-        # intermediate result
-        self.cbu1 = ConvBnLeaky(512, 256, 1, 1, suffix=[Upsample()])
-        self.dnl = nn.Sequential(ConvBnLeaky(768, 256, 1, 1),
-                                 ConvBnLeaky(256, 512, 3, 1, 1),
-                                 ConvBnLeaky(512, 256, 1, 1),
-                                 ConvBnLeaky(256, 512, 3, 1, 1),
-                                 ConvBnLeaky(512, 256, 1, 1))
-
-        # the 2nd yolo
-        self.yolo2 = YoloLayer([3, 4, 5], nC)
-        self.py2 = nn.Sequential(ConvBnLeaky(256, 512, 3, 1, 1),
+        self.py1 = nn.Sequential(ConvBnLeaky(256, 512, 3, 1, 1),
                                  ConvBn(512, icc, 1, 1))
 
         # intermediate result
-        self.cbu2 = ConvBnLeaky(256, 128, 1, 1, suffix=[Upsample()])
+        self.cbu1 = ConvBnLeaky(256, 128, 1, 1, suffix=[Upsample()])
+        self.dnl = nn.Sequential(ConvBnLeaky(384, 128, 1, 1),
+                                 ConvBnLeaky(128, 256, 3, 1, 1),
+                                 ConvBnLeaky(256, 128, 1, 1),
+                                 ConvBnLeaky(128, 256, 3, 1, 1),
+                                 ConvBnLeaky(256, 128, 1, 1))
+
+        # the 2nd yolo
+        self.yolo2 = YoloLayer([3, 4, 5], nC)
+        self.py2 = nn.Sequential(ConvBnLeaky(128, 256, 3, 1, 1),
+                                 ConvBn(256, icc, 1, 1))
+
+        # intermediate result
+        self.cbu2 = ConvBnLeaky(128, 64, 1, 1, suffix=[Upsample()])
 
         # the 3rd yolo
         self.yolo3 = YoloLayer([0, 1, 2], nC)
-        self.py3 = nn.Sequential(ConvBnLeaky(384, 128, 1, 1),
-                                 ConvBnLeaky(128, 256, 3, 1, 1),
-                                 Darknet3Layer(256, 128, 2),
-                                 ConvBn(256, icc, 1, 1))
+        self.py3 = nn.Sequential(ConvBnLeaky(192, 64, 1, 1),
+                                 ConvBnLeaky(64, 128, 3, 1, 1),
+                                 Darknet3Layer(128, 64, 2),
+                                 ConvBn(128, icc, 1, 1))
 
     def forward(self, x: Tensor) -> list[Tensor] | Tensor:
         yolo: list[Tensor] = [None, None, None]

@@ -12,6 +12,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor, int32
 from numpy import ndarray
+import torchvision.transforms.functional as TF
+
+import re
 
 from utils import *
 
@@ -308,8 +311,6 @@ class LegoSegment:
         label[:, 5] = lc[:, 5] - lc[:, 3]
         
         return self.image.copy(), label, self.imagePath, xmin, ymin
-    
-
 
 class LegoData:
     ClassMap = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0])
@@ -368,7 +369,6 @@ class LegoData:
         self.augment: bool = augment
 
         if segmentSize is None:
-            print('none')
             segmentSize = (int(self.shape[0]), int(self.shape[1]))
         
         if segmentSize[0] != self.segmentSize[0] or segmentSize[1] != self.segmentSize[1]:
@@ -460,14 +460,14 @@ class LegoData:
                     images[i], labelList[i], M = random_affine(images[i], labelList[i], degrees=(-5, 5), translate=(0.10, 0.10), scale=(0.90, 1.10))
 
                 # random left-right flip
-                lr_flip = True
-                if lr_flip & (random.random() > 0.50):
+                lrFlip = True
+                if lrFlip & (random.random() > 0.50):
                     images[i] = np.fliplr(images[i])
                     labelList[i][:, 2] = 1 - labelList[i][:, 2]
 
                 # random up-down flip
-                ud_flip = True
-                if ud_flip & (random.random() > 0.50):
+                udFlip = True
+                if udFlip & (random.random() > 0.50):
                     images[i] = np.flipud(images[i])
                     labelList[i][:, 3] = 1 - labelList[i][:, 3]
 
@@ -475,7 +475,7 @@ class LegoData:
             images = torch.from_numpy(images).cuda().permute(0, 3, 1, 2).cpu()
         
         labels: ndarray = np.concatenate(labelList, 0)
-        labels[:, 1] = LegoData.ClassMap[labels[:, 1].astype(np.int32)]
+        # labels[:, 1] = LegoData.ClassMap[labels[:, 1].astype(np.int32)]
 
         return images, torch.from_numpy(labels), imagePaths
 
@@ -486,11 +486,114 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=None):
     c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
     cv2.rectangle(img, c1, c2, color, thickness=tl)
 
+class Darknet3Data:
+    def __init__(self, dirs: list[str], shape: tuple[float, float] = (416, 416)) -> None:
+        self.augment = False
+        self.images = torch.zeros((0, 3, shape[1], shape[0]))
+        self.imagePaths = []
+        self.batchSize = 0
+        self.batchCount = 0
+        self.samplesPerEpoch = self.batchCount * self.batchSize
+        self.shape = shape
+        self.labels: list[ndarray] = []
+        for i, d in enumerate(dirs):
+            datapath = os.path.join(d, 'train')
+            fileNames = [os.path.join(datapath, f) for f in os.listdir(datapath) if f[0] != '_']
+            fileNames = sorted(fileNames)
+            if os.path.splitext(fileNames[0])[1] == '.txt':
+                fileNames = [(fileNames[i], fileNames[i + 1]) for i in range(0, len(fileNames), 2)]
+            else:
+                fileNames = [(fileNames[i + 1], fileNames[i]) for i in range(0, len(fileNames), 2)]
+            images = []
+            for labelPath, imagePath in fileNames:
+                with open(labelPath, 'r') as f:
+                    lines = f.read().splitlines()
+                label: ndarray = np.array([l.split() for l in lines], dtype=np.float32)
+                # to xyxy
+                # lc: ndarray = label.copy()
+                label[:, 0] += i
+                # label[:, 1] = lc[:, 1] - lc[:, 3] / 2
+                # label[:, 3] = lc[:, 1] + lc[:, 3] / 2
+                # label[:, 2] = lc[:, 2] - lc[:, 4] / 2
+                # label[:, 4] = lc[:, 2] + lc[:, 4] / 2
+                if label.shape[0] > 0:
+                    self.labels.append(label)
+                    with torch.no_grad():
+                        image: Tensor = torch.from_numpy(cv2.imread(imagePath)).float().unsqueeze(0).cuda().permute(0, 3, 1, 2) / 255.0
+                        images.append(F.interpolate(image, scale_factor=(shape[1] / image.shape[-2], shape[0] / image.shape[-1])).cpu())
+                    self.imagePaths.append(imagePath)
+            self.images = torch.cat((self.images, *images), dim=0)
+        self.sampleCount = self.images.shape[0]
+
+    def rebatch(self, augment: bool, batchSize: int, batchCount: int = 0) -> None:
+        self.augment: bool = augment
+        self.batchSize = batchSize
+        if batchCount > 0:
+            self.batchCount = batchCount
+        else:
+            self.batchCount = self.sampleCount
+        self.samplesPerEpoch = self.batchSize * self.batchCount
+
+    def __iter__(self):
+        self.count = -1
+        self.shuffled: ndarray = np.random.permutation(self.samplesPerEpoch) % self.sampleCount
+        return self
+        
+    def __len__(self):
+        return self.batchCount
+
+    def __next__(self) -> tuple[Tensor, Tensor, list[str]]:
+        self.count += 1
+        if self.count == self.images.shape[0]:
+            raise StopIteration
+
+        ni: int = self.batchSize * self.count
+        nf: int = self.batchSize * (self.count + 1)
+
+        # batchList: list[tuple(ndarray, ndarray, str)] = [(cv2.imread(self.imagePaths[self.count]), self.labels[self.count], self.imagePaths[self.count])]
+
+        labelList: list[ndarray] = [self.labels[i] for i in self.shuffled[ni:nf]]
+        imagePaths: list[str] = [self.imagePaths[i] for i in self.shuffled[ni:nf]]
+        with torch.no_grad():
+            images: Tensor = self.images[self.shuffled[ni:nf]].clone().cuda()
+            for i in range(images.shape[0]):
+                l = labelList[i]
+                l = np.concatenate((np.zeros((l.shape[0], 1), dtype=np.float32) + i, l), axis=1)
+                if self.augment:
+                    augmentHsv = True
+                    if augmentHsv:
+                        fraction = 0.50
+                        fw = 2 * fraction
+                        images[i:i+1] = TF.adjust_saturation(images[i:i+1], fw * random.random() - fraction + 1)
+                        images[i:i+1] = TF.adjust_contrast(images[i:i+1], fw * random.random() - fraction + 1)
+                        images[i:i+1] = TF.adjust_hue(images[i:i+1], fraction * (random.random() - 0.5))
+                        images[i:i+1] = TF.adjust_gamma(images[i:i+1], fw * random.random() - fraction + 1)
+                        images[i:i+1] = TF.adjust_brightness(images[i:i+1], fw * random.random() - fraction + 1)
+                        images[i:i+1] = TF.adjust_sharpness(images[i:i+1], fw * random.random() - fraction + 1)
+                lrFlip = True
+                if lrFlip and (random.random() > 0.50):
+                    images[i:i+1] = TF.hflip(images[i:i+1])
+                    l[:, 2] = 1 - l[:, 2]
+                udFlip = True
+                if udFlip and (random.random() > 0.50):
+                    images[i:i+1] = TF.vflip(images[i:i+1])
+                    l[:, 3] = 1 - l[:, 3]
+                labelList[i] = l
+            images = images.cpu()
+        
+        labels = np.concatenate(labelList, 0)
+        lc = labels.copy()
+
+        return images, torch.from_numpy(labels), imagePaths
+
+
+
 
 if __name__ == '__main__':
+    ld = Darknet3Data(['screwdriver'])
     # cs = CocoSubset(416, classList=['person', 'cat'])
-    ld = LegoData('Lego', shape=(1056, 1056))
-    ld.rebatch(True, 1, segmentSize=(416, 416))
+    # ld = LegoData('Lego', shape=(1056, 1056))
+    ld.rebatch(True, 2)
     # print(ld.batchCount)
     windowname = 'test'
     cv2.namedWindow(windowname)

@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from utils import torch_utils
+from ..Darknet.YOLOv3 import YoloLayer
 
 # Set printoptions
 torch.set_printoptions(linewidth=1320, precision=5, profile='long')
@@ -280,13 +281,56 @@ def compute_loss(p, targets):  # predictions, targets
     return loss, d
 
 
-def build_targets(model, targets, pred):
+def build_targets_old(model, targets, pred):
     # targets = [image, class, x, y, w, h]
     if isinstance(model, nn.DataParallel):
         model = model.module
     yolo_layers = [model.yolo1, model.yolo2, model.yolo3]
 
     # anchors = closest_anchor(model, targets)  # [layer, anchor, i, j]
+    txy, twh, tcls, tconf, indices = [], [], [], [], []
+    for i, layer in enumerate(yolo_layers):
+        nG = layer.nG  # grid size
+        anchor_vec = layer.anchor_vec
+
+        # iou of targets-anchors
+        gwh = targets[:, 4:6] * nG
+        iou = [wh_iou(x, gwh) for x in anchor_vec]
+        iou, a = torch.stack(iou, 0).max(0)  # best iou and anchor
+
+        # reject below threshold ious (OPTIONAL)
+        reject = True
+        if reject:
+            j = iou > 0.01
+            t, a, gwh = targets[j], a[j], gwh[j]
+        else:
+            t = targets
+
+        # Indices
+        b, c = t[:, 0:2].long().t()  # target image, class
+        gxy = t[:, 2:4] * nG
+        gi, gj = gxy.long().t()  # grid_i, grid_j
+        indices.append((b, a, gj, gi))
+
+        # XY coordinates
+        txy.append(gxy - gxy.floor())
+
+        # Width and height
+        twh.append(torch.log(gwh / anchor_vec[a]))  # yolo method
+        # twh.append(torch.sqrt(gwh / anchor_vec[a]) / 2)  # power method
+
+        # Class
+        tcls.append(c)
+
+        # Conf
+        tci = torch.zeros_like(pred[i][..., 0])
+        tci[b, a, gj, gi] = 1  # conf
+        tconf.append(tci)
+
+    return txy, twh, tcls, tconf, indices
+
+
+def build_targets(yolo_layers: list[YoloLayer], targets, pred):
     txy, twh, tcls, tconf, indices = [], [], [], [], []
     for i, layer in enumerate(yolo_layers):
         nG = layer.nG  # grid size

@@ -80,3 +80,5 @@ if __name__ == '__main__':
     sd.extractAndSaveMasks()
     sd = SegmentData(basePath = os.path.join('.', 'Lego'), inputSize=(1056, 1056), segmentSize=(416, 416))
     sd.extractAndSaveMasks()
+    sd = SegmentData(basePath = os.path.join('.', 'Lego'), inputSize=(416, 416), segmentSize=(416, 416))
+    sd.extractAndSaveMasks()

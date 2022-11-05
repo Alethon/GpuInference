@@ -102,7 +102,7 @@ class LoadImagesAndLabels:  # for training
                             for x in self.img_files]
         self.clsCount = clsCount
         self.nF = len(self.img_files)  # number of image files
-        self.nB = math.ceil(self.nF / batch_size / clsCount / 8)  # number of batches
+        self.nB = math.ceil(self.nF / batch_size / clsCount / 32)  # number of batches
         self.batch_size = batch_size
         self.img_size = img_size
         self.augment = augment

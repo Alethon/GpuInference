@@ -28,3 +28,6 @@ yolov3/
 Lego/images/*
 *.zip
 Lego/segments/*
+screwdriver
+models.py
+results.txt

@@ -6,316 +6,16 @@ from collections import defaultdict
 import torch
 from torch import Tensor
 
+from utils.utils import *
+
 from Darknet3Data import *
 from Darknet.Darknet3 import *
-from utils.datasets import LoadImagesAndLabels
 
 torch.backends.cudnn.benchmark = True
 
-def wh_iou(box1, box2):
-    # Returns the IoU of wh1 to wh2. wh1 is 2, wh2 is nx2
-    box2 = box2.t()
-
-    # w, h = box1
-    w1, h1 = box1[0], box1[1]
-    w2, h2 = box2[0], box2[1]
-
-    # Intersection area
-    inter_area = torch.min(w1, w2) * torch.min(h1, h2)
-
-    # Union Area
-    union_area = (w1 * h1 + 1e-16) + w2 * h2 - inter_area
-
-    return inter_area / union_area  # iou
-
-# def build_targets(model, targets, pred):
-def build_targets(yolo_layers: list[YoloLayer], targets, pred):
-    # targets = [image, class, x, y, w, h]
-    # if isinstance(model, nn.DataParallel):
-    #     model = model.module
-    # yolo_layers = get_yolo_layers(model)
-
-    # anchors = closest_anchor(model, targets)  # [layer, anchor, i, j]
-    txy, twh, tcls, tconf, indices = [], [], [], [], []
-    for i, layer in enumerate(yolo_layers):
-        # nG = model.module_list[layer][0].nG  # grid size
-        # anchor_vec = model.module_list[layer][0].anchor_vec
-        nG = layer.nG  # grid size
-        anchor_vec = layer.anchorVector
-
-        # iou of targets-anchors
-        gwh = targets[:, 4:6] * nG
-        iou = [wh_iou(x, gwh) for x in anchor_vec]
-        iou, a = torch.stack(iou, 0).max(0)  # best iou and anchor
-
-        # reject below threshold ious (OPTIONAL)
-        reject = True
-        if reject:
-            # j = iou > 0.01
-            j = iou > 0.05
-            t, a, gwh = targets[j], a[j], gwh[j]
-        else:
-            t = targets
-
-        # Indices
-        b, c = t[:, 0:2].long().t()  # target image, class
-        gxy = t[:, 2:4] * nG
-        gi, gj = gxy.long().t()  # grid_i, grid_j
-        indices.append((b, a, gj, gi))
-
-        # XY coordinates
-        txy.append(gxy - gxy.floor())
-
-        # Width and height
-        twh.append(torch.log(gwh / anchor_vec[a]))  # yolo method
-        # twh.append(torch.sqrt(gwh / anchor_vec[a]) / 2)  # power method
-
-        # Class
-        tcls.append(c)
-
-        # Conf
-        tci = torch.zeros_like(pred[i][..., 0])
-        tci[b, a, gj, gi] = 1  # conf
-        tconf.append(tci)
-
-    return txy, twh, tcls, tconf, indices
-
-def compute_loss(p, targets):  # predictions, targets
-    FT = torch.cuda.FloatTensor if p[0].is_cuda else torch.FloatTensor
-    loss, lxy, lwh, lcls, lconf = FT([0]), FT([0]), FT([0]), FT([0]), FT([0])
-    txy, twh, tcls, tconf, indices = targets
-    MSE = nn.MSELoss()
-    CE = nn.CrossEntropyLoss()
-    BCE = nn.BCEWithLogitsLoss()
-
-    # Compute losses
-    # gp = [x.numel() for x in tconf]  # grid points
-    for i, pi0 in enumerate(p):  # layer i predictions, i
-        b, a, gj, gi = indices[i]  # image, anchor, gridx, gridy
-
-        # Compute losses
-        k = 1  # nT / bs
-        if len(b) > 0:
-            pi = pi0[b, a, gj, gi]  # predictions closest to anchors
-            lxy += k * MSE(torch.sigmoid(pi[..., 0:2]), txy[i])  # xy
-            lwh += k * MSE(pi[..., 2:4], twh[i])  # wh
-            lcls += (k / 4) * CE(pi[..., 5:], tcls[i])
-
-        # pos_weight = FT([gp[i] / min(gp) * 4.])
-        # BCE = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        lconf += (k * 64) * BCE(pi0[..., 4], tconf[i])
-    loss = lxy + lwh + lconf + lcls
-
-    # Add to dictionary
-    d = defaultdict(float)
-    losses = [loss.item(), lxy.item(), lwh.item(), lconf.item(), lcls.item()]
-    for name, x in zip(['total', 'xy', 'wh', 'conf', 'cls'], losses):
-        d[name] = x
-
-    return loss, d
-
-def xywh2xyxy(x):
-    # Convert bounding box format from [x, y, w, h] to [x1, y1, x2, y2]
-    y = torch.zeros_like(x) if x.dtype is torch.float32 else np.zeros_like(x)
-    y[:, 0] = (x[:, 0] - x[:, 2] / 2)
-    y[:, 1] = (x[:, 1] - x[:, 3] / 2)
-    y[:, 2] = (x[:, 0] + x[:, 2] / 2)
-    y[:, 3] = (x[:, 1] + x[:, 3] / 2)
-    return y
-
-def bbox_iou(box1, box2, x1y1x2y2=True):
-    # Returns the IoU of box1 to box2. box1 is 4, box2 is nx4
-    box2 = box2.t()
-
-    # Get the coordinates of bounding boxes
-    if x1y1x2y2:
-        # x1, y1, x2, y2 = box1
-        b1_x1, b1_y1, b1_x2, b1_y2 = box1[0], box1[1], box1[2], box1[3]
-        b2_x1, b2_y1, b2_x2, b2_y2 = box2[0], box2[1], box2[2], box2[3]
-    else:
-        # x, y, w, h = box1
-        b1_x1, b1_x2 = box1[0] - box1[2] / 2, box1[0] + box1[2] / 2
-        b1_y1, b1_y2 = box1[1] - box1[3] / 2, box1[1] + box1[3] / 2
-        b2_x1, b2_x2 = box2[0] - box2[2] / 2, box2[0] + box2[2] / 2
-        b2_y1, b2_y2 = box2[1] - box2[3] / 2, box2[1] + box2[3] / 2
-
-    # Intersection area
-    inter_area = (torch.min(b1_x2, b2_x2) - torch.max(b1_x1, b2_x1)).clamp(0) * \
-                 (torch.min(b1_y2, b2_y2) - torch.max(b1_y1, b2_y1)).clamp(0)
-
-    # Union Area
-    union_area = ((b1_x2 - b1_x1) * (b1_y2 - b1_y1) + 1e-16) + \
-                 (b2_x2 - b2_x1) * (b2_y2 - b2_y1) - inter_area
-
-    return inter_area / union_area  # iou
-
-def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
-    """
-    Removes detections with lower object confidence score than 'conf_thres'
-    Non-Maximum Suppression to further filter detections.
-    Returns detections with shape:
-        (x1, y1, x2, y2, object_conf, class_score, class_pred)
-    """
-    output = [None for _ in range(len(prediction))]
-    for image_i, pred in enumerate(prediction):
-
-        # Filter out confidence scores below threshold
-        class_prob, class_pred = torch.max(F.softmax(pred[:, 5:], 1), 1)
-        v = pred[:, 4] > conf_thres
-        v = v.nonzero().squeeze()
-        if len(v.shape) == 0:
-            v = v.unsqueeze(0)
-
-        pred = pred[v]
-        class_prob = class_prob[v]
-        class_pred = class_pred[v]
-
-        # If none are remaining => process next image
-        nP = pred.shape[0]
-        if not nP:
-            continue
-
-        # From (center x, center y, width, height) to (x1, y1, x2, y2)
-        pred[:, :4] = xywh2xyxy(pred[:, :4])
-
-        # Detections ordered as (x1, y1, x2, y2, obj_conf, class_prob, class_pred)
-        detections = torch.cat((pred[:, :5], class_prob.float().unsqueeze(1), class_pred.float().unsqueeze(1)), 1)
-        # Iterate through all predicted classes
-        unique_labels = detections[:, -1].cpu().unique().to(prediction.device)
-
-        nms_style = 'OR'  # 'OR' (default), 'AND', 'MERGE' (experimental)
-        for c in unique_labels:
-            # Get the detections with class c
-            dc = detections[detections[:, -1] == c]
-            # Sort the detections by maximum object confidence
-            _, conf_sort_index = torch.sort(dc[:, 4] * dc[:, 5], descending=True)
-            dc = dc[conf_sort_index]
-
-            # Non-maximum suppression
-            det_max = []
-            ind = list(range(len(dc)))
-            if nms_style == 'OR':  # default
-                while len(ind):
-                    j = ind[0]
-                    det_max.append(dc[j:j + 1])  # save highest conf detection
-                    reject = bbox_iou(dc[j], dc[ind]) > nms_thres
-                    [ind.pop(i) for i in reversed(reject.nonzero())]
-                # while dc.shape[0]:  # SLOWER METHOD
-                #     det_max.append(dc[:1])  # save highest conf detection
-                #     if len(dc) == 1:  # Stop if we're at the last detection
-                #         break
-                #     iou = bbox_iou(dc[0], dc[1:])  # iou with other boxes
-                #     dc = dc[1:][iou < nms_thres]  # remove ious > threshold
-
-                # Image      Total          P          R        mAP
-                #  4964       5000      0.629      0.594      0.586
-
-            elif nms_style == 'AND':  # requires overlap, single boxes erased
-                while len(dc) > 1:
-                    iou = bbox_iou(dc[0], dc[1:])  # iou with other boxes
-                    if iou.max() > 0.5:
-                        det_max.append(dc[:1])
-                    dc = dc[1:][iou < nms_thres]  # remove ious > threshold
-
-            elif nms_style == 'MERGE':  # weighted mixture box
-                while len(dc) > 0:
-                    iou = bbox_iou(dc[0], dc[0:])  # iou with other boxes
-                    i = iou > nms_thres
-
-                    weights = dc[i, 4:5] * dc[i, 5:6]
-                    dc[0, :4] = (weights * dc[i, :4]).sum(0) / weights.sum()
-                    det_max.append(dc[:1])
-                    dc = dc[iou < nms_thres]
-
-                # Image      Total          P          R        mAP
-                #  4964       5000      0.633      0.598      0.589  # normal
-
-            if len(det_max) > 0:
-                det_max = torch.cat(det_max)
-                # Add max detections to outputs
-                output[image_i] = det_max if output[image_i] is None else torch.cat((output[image_i], det_max))
-
-    return output
-
-def compute_ap(recall, precision):
-    """ Compute the average precision, given the recall and precision curves.
-    Source: https://github.com/rbgirshick/py-faster-rcnn.
-    # Arguments
-        recall:    The recall curve (list).
-        precision: The precision curve (list).
-    # Returns
-        The average precision as computed in py-faster-rcnn.
-    """
-    # correct AP calculation
-    # first append sentinel values at the end
-
-    mrec = np.concatenate(([0.], recall, [1.]))
-    mpre = np.concatenate(([0.], precision, [0.]))
-
-    # compute the precision envelope
-    for i in range(mpre.size - 1, 0, -1):
-        mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
-
-    # to calculate area under PR curve, look for points
-    # where X axis (recall) changes value
-    i = np.where(mrec[1:] != mrec[:-1])[0]
-
-    # and sum (\Delta recall) * prec
-    ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
-    return ap
-
-def ap_per_class(tp, conf, pred_cls, target_cls):
-    """ Compute the average precision, given the recall and precision curves.
-    Source: https://github.com/rafaelpadilla/Object-Detection-Metrics.
-    # Arguments
-        tp:    True positives (list).
-        conf:  Objectness value from 0-1 (list).
-        pred_cls: Predicted object classes (list).
-        target_cls: True object classes (list).
-    # Returns
-        The average precision as computed in py-faster-rcnn.
-    """
-
-    # Sort by objectness
-    i = np.argsort(-conf)
-    tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
-
-    # Find unique classes
-    unique_classes = np.unique(np.concatenate((pred_cls, target_cls), 0))
-
-    # Create Precision-Recall curve and compute AP for each class
-    ap, p, r = [], [], []
-    for c in unique_classes:
-        i = pred_cls == c
-        n_gt = sum(target_cls == c)  # Number of ground truth objects
-        n_p = sum(i)  # Number of predicted objects
-
-        if (n_p == 0) and (n_gt == 0):
-            continue
-        elif (n_p == 0) or (n_gt == 0):
-            ap.append(0)
-            r.append(0)
-            p.append(0)
-        else:
-            # Accumulate FPs and TPs
-            fpc = np.cumsum(1 - tp[i])
-            tpc = np.cumsum(tp[i])
-
-            # Recall
-            recall_curve = tpc / (n_gt + 1e-16)
-            r.append(tpc[-1] / (n_gt + 1e-16))
-
-            # Precision
-            precision_curve = tpc / (tpc + fpc)
-            p.append(tpc[-1] / (tpc[-1] + fpc[-1]))
-
-            # AP from recall-precision curve
-            ap.append(compute_ap(recall_curve, precision_curve))
-
-    return np.array(ap), unique_classes.astype('int32'), np.array(r), np.array(p)
-
 class Darknet3Trainer:
-    def __init__(self, datasetInfoPath: str) -> None:
+    def __init__(self, datasetInfoPath: str, useOld: bool = False) -> None:
+        self.useOld: bool = useOld
         info: dict[str, any] = readDatasetInfo(datasetInfoPath)
         
         # basic
@@ -323,10 +23,12 @@ class Darknet3Trainer:
         self.classCount: int = info['classes']
         
         # data
-        self.data: LegoData = LegoData(info['dataPath'])
+        self.data: LegoData = LegoData(info['dataPath'], shape=(416, 416))
+        # self.data: LegoData = Darknet3Data(['screwdriver'])
+        
+        # self.data: LoadImagesAndLabels = LoadImagesAndLabels(parse_data_cfg('cfg/coco-0-19.data')['train'], 'subsets/0-19/labels', self.classCount, 16, 416, augment=True)
         # self.data: LoadImagesAndLabels = LoadImagesAndLabels('./coco/subsets/0-19/trainvalno5k.txt', 'subsets/0-19/labels', self.classCount, 12, 416, augment=True)
         
-        # model
         if info['useTiny']:
             self.model: DarknetTiny3 = DarknetTiny3(self.classCount).to(self.device)
             self.yolos: list[YoloLayer] = [self.model.yolo1, self.model.yolo2]
@@ -364,126 +66,103 @@ class Darknet3Trainer:
         }, checkPointPath)
         self.model = self.model.to(self.device)
 
-    def loadCheckpoint(self, checkPointPath: str, lrOverride: float = None) -> None:
+    def loadCheckpoint(self, checkPointPath: str) -> None:
         self.model = self.model.cpu()
         checkpoint: dict = torch.load(checkPointPath)
         self.model.load_state_dict(checkpoint['model'])
         self.lr = checkpoint['lr']
-        if lrOverride is not None:
-            self.lr = lrOverride
+        self.model = self.model.to(self.device)
         self.optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, self.model.parameters()), lr=self.lr, momentum=0.9)
         self.epoch = checkpoint['epoch']
         if checkpoint['optimizer'] is not None:
             self.optimizer.load_state_dict(checkpoint['optimizer'])
             self.bestLoss = checkpoint['bestLoss']
         del checkpoint
-        self.model = self.model.to(self.device)
     
     def updateLearningRate(self) -> None:
-        if self.epoch % 50 == 0:
-            self.lr /= 2
+        if self.epoch % 250 == 0:
+            self.lr /= 10
         self.updateOptimizer()
     
-    def test(self, batchSize: int, confThresh: float = 0.5, nmsThresh: float = 0.4, iouThresh: float = 0.5) -> tuple:
+    # def test(self, batchSize: int, confThresh: float = 0.5, nmsThresh: float = 0.4, iouThresh: float = 0.5) -> tuple:
+    def test(self, batchSize: int, confThresh: float = 0.3, nmsThresh: float = 0.45, iouThresh: float = 0.5) -> tuple:# largly derived from test.py in https://github.com/ultralytics/yolov3/tree/v3.0 
         self.model.eval()
-        self.data.rebatch(False, batchSize, 0, segmentSize=(416, 416))
         mean_mAP, mean_R, mean_P, seen = 0.0, 0.0, 0.0, 0
+        self.data.rebatch(False, batchSize)
+        print()
         print('%11s' * 5 % ('Image', 'Total', 'P', 'R', 'mAP'))
-        mP, mR, mAPs, TP = [], [], [], []
+        mP, mR, mAPs = [], [], []
         AP_accum, AP_accum_count = np.zeros(self.classCount), np.zeros(self.classCount)
-        # for (images, targets, _, _) in self.data:
-        for (images, targets, _) in self.data:
+        for (imgs, targets, _) in self.data:
             targets = targets.to(self.device)
             t = time()
             with torch.no_grad():
-                output = self.model(images.to(self.device))
+                output = self.model(imgs.to(self.device))
             output = non_max_suppression(output, conf_thres=confThresh, nms_thres=nmsThresh)
-            # Compute average precision for each sample
-            # print(output)
             for si, detections in enumerate(output):
                 labels = targets[targets[:, 0] == si, 1:]
                 seen += 1
                 if detections is None:
-                    # If there are labels but no detections mark as zero AP
                     if len(labels) != 0:
                         mP.append(0), mR.append(0), mAPs.append(0)
                     continue
-
-                # Get detections sorted by decreasing confidence scores
                 detections = detections[(-detections[:, 4]).argsort()]
-
-                # If no labels add number of detections as incorrect
                 correct = []
                 if len(labels) == 0:
                     # correct.extend([0 for _ in range(len(detections))])
                     mP.append(0), mR.append(0), mAPs.append(0)
                     continue
                 else:
-                    # Extract target boxes as (x1, y1, x2, y2)
-                    target_box = xywh2xyxy(labels[:, 1:5]) # * img_size
-                    target_cls = labels[:, 0]
-
+                    target_box = xywh2xyxy(labels[:, 1:5]) * 416
+                    targetClass = labels[:, 0]
                     detected = []
-                    for *pred_box, conf, cls_conf, cls_pred in detections:
-                        # Best iou, index between pred and targets
-                        iou, bi = bbox_iou(pred_box, target_box).max(0)
-
-                        # If iou > threshold and class is correct mark as correct
-                        if iou > iouThresh and cls_pred == target_cls[bi] and bi not in detected:
+                    for *predictions_box, _, _, cls_predictions in detections:
+                        iou, bi = bbox_iou(predictions_box, target_box).max(0)
+                        if iou > iouThresh and cls_predictions == targetClass[bi] and bi not in detected:
                             correct.append(1)
                             detected.append(bi)
                         else:
                             correct.append(0)
-
-                # Compute Average Precision (AP) per class
-                AP, AP_class, R, P = ap_per_class(tp=np.array(correct),
-                                                conf=detections[:, 4].cpu().numpy(),
-                                                pred_cls=detections[:, 6].cpu().numpy(),
-                                                target_cls=target_cls.cpu().numpy())
-
-                # Accumulate AP per class
+                AP, AP_class, R, P = ap_per_class(tp=np.array(correct), conf=detections[:, 4].cpu().numpy(), pred_cls=detections[:, 6].cpu().numpy(), target_cls=targetClass.cpu().numpy())
                 AP_accum_count += np.bincount(AP_class, minlength=self.classCount)
                 AP_accum += np.bincount(AP_class, minlength=self.classCount, weights=AP)
-
-                # Compute mean AP across all classes in this image, and append to image list
                 mP.append(P.mean())
                 mR.append(R.mean())
                 mAPs.append(AP.mean())
-
-                # Means of all images
                 mean_P = np.mean(mP)
                 mean_R = np.mean(mR)
                 mean_mAP = np.mean(mAPs)
-            # Print image mAP and running mean mAP
-            # print(('%11s%11s' + '%11.3g' * 4 + 's') % (seen, self.data.sampleCount, mean_P, mean_R, mean_mAP, time() - t))
             print(('%11s%11s' + '%11.3g' * 4 + 's') % (seen, len(self.data), mean_P, mean_R, mean_mAP, time() - t))
-        # Print mAP per class
         print('\nmAP Per Class:')
         for i in range(self.classCount):
-            print('%15d: %-.4f' % (i, AP_accum[i] / (AP_accum_count[i])))
-        # Return mAP
+            if AP_accum_count[i]:
+                print('%04d: %-.4f' % (i, AP_accum[i] / (AP_accum_count[i])))
         return mean_P, mean_R, mean_mAP
 
-    def _trainEpoch(self, save: bool = True) -> None:
+    def _trainEpoch(self, save: bool = True) -> None: # largly derived from train.py in https://github.com/ultralytics/yolov3/tree/v3.0 
+        print(('\n%8s%12s' + '%10s' * 7) % ('Epoch', 'Batch', 'xy', 'wh', 'conf', 'cls', 'total', 'nTargets', 'time'))
         self.epoch += 1
         self.updateLearningRate()
         rloss = defaultdict(float)
+        ui = -1
         t = time()
-        # for i, (images, targets, _, _) in enumerate(self.data):
         for i, (images, targets, _) in enumerate(self.data):
-            # print(images.shape, targets.shape)
-            # print(targets)
+            targets = targets.to(self.device)
             targetCount: int = targets.shape[0]
-            if (self.epoch == 0) and (i <= self.nBurnIn):
-                self.nBurnIn = min(self.nBurnIn, len(self.data))
+            if targetCount == 0:
+                continue
+            if (self.epoch == 1) and (i <= self.nBurnIn):
                 self.lr = self.lr0 * ((i + 1) / self.nBurnIn) ** 4
                 self.updateLearningRate()
             prediction: list[Tensor] = self.model(images.to(self.device))
-            targetList = build_targets(self.yolos, targets.to(self.device), prediction)
+            targetList = build_targets([self.model.yolo1, self.model.yolo2, self.model.yolo3], targets, prediction)
             loss, loss_dict = compute_loss(prediction, targetList)
             loss.backward()
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+            ui += 1
             for key, val in loss_dict.items():
-                rloss[key] = (rloss[key] * i + val) / (i + 1)
+                rloss[key] = (rloss[key] * ui + val) / (ui + 1)
             s = ('%8s%12s' + '%10.3g' * 7) % (
                 '%g' % (self.epoch),
                 '%g/%g' % (i, len(self.data) - 1),
@@ -505,24 +184,20 @@ class Darknet3Trainer:
         if epochCount <= 0:
             return
         self.model.train()
-        self.data.rebatch(True, batchSize, batchCount, segmentSize=(416, 416))
+        self.data.rebatch(True, batchSize, batchCount)
+        self.nBurnIn = min(self.nBurnIn, len(self.data))
         for _ in range(epochCount):
             self._trainEpoch(save=save)
     
     def trainThenTest(self, epochCount: int, batchSize: int, batchCount: int, save: bool = True) -> None:
         self.trainEpochs(epochCount, batchSize, batchCount, save=save)
-        with torch.no_grad():
-            # self.test(batchSize)
-            self.test(1)
+        self.test(batchSize)
 
 if __name__ == '__main__':
     infoPath = os.path.join('.', 'cfg', 'obj.data')
-    # infoPath = os.path.join('.', 'cfg', 'coco-0-19.data')
     dt = Darknet3Trainer(infoPath)
-    # dt.loadCheckpoint(dt.latestWeightsPath, lrOverride=0.01)
-    # dt.loadCheckpoint(dt.latestWeightsPath)
+    dt.loadCheckpoint(dt.latestWeightsPath)
     # dt.loadCheckpoint(dt.bestWeightsPath)
-    # dt.test(1)
-    # for i in range(3):
-    #     dt.trainThenTest(10, 12, 2000)
-    dt.trainThenTest(20, 12, 2000)
+    dt.test(1)
+    while True:
+        dt.trainThenTest(1, 12, 200)
