@@ -8,39 +8,24 @@ from torch import Tensor
 
 from utils.utils import *
 
+from DarknetUser import *
 from Darknet3Data import *
 from Darknet.Darknet3 import *
 
 torch.backends.cudnn.benchmark = True
 
-class Darknet3Trainer:
+class Darknet3Trainer(DarknetUser):
     def __init__(self, datasetInfoPath: str) -> None:
-        info: dict[str, any] = readDatasetInfo(datasetInfoPath)
-        
-        # basic
-        self.device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.classCount: int = info['classes']
+        super().__init__(datasetInfoPath)
         
         # data
-        self.data: LegoData = LegoData(info['dataPath'], shape=(416, 416))
+        self.data: LegoData = LegoData(self.info['dataPath'], shape=(416, 416))
         # self.data: LegoData = Darknet3Data(['screwdriver'])
         
         # self.data: LoadImagesAndLabels = LoadImagesAndLabels(parse_data_cfg('cfg/coco-0-19.data')['train'], 'subsets/0-19/labels', self.classCount, 16, 416, augment=True)
         # self.data: LoadImagesAndLabels = LoadImagesAndLabels('./coco/subsets/0-19/trainvalno5k.txt', 'subsets/0-19/labels', self.classCount, 12, 416, augment=True)
-        
-        if info['useTiny']:
-            self.model: DarknetTiny3 = DarknetTiny3(self.classCount).to(self.device)
-            self.yolos: list[YoloLayer] = [self.model.yolo1, self.model.yolo2]
-            self.weightsPath: str = WEIGHTS + '_tiny'
-        else:
-            self.model: Darknet3 = Darknet3(self.classCount).to(self.device)
-            self.yolos: list[YoloLayer] = [self.model.yolo1, self.model.yolo2, self.model.yolo3]
-            self.weightsPath: str = WEIGHTS
 
-        self.latestWeightsPath: str = os.path.join(self.weightsPath, 'latest.pt')
         self.bestWeightsPath: str = os.path.join(self.weightsPath, 'best.pt')
-        if not os.path.isdir(self.weightsPath):
-            os.makedirs(self.weightsPath)
         
         # training variables
         self.epoch: int = 0
@@ -65,18 +50,15 @@ class Darknet3Trainer:
         }, checkPointPath)
         self.model = self.model.to(self.device)
 
-    def loadCheckpoint(self, checkPointPath: str) -> None:
-        self.model = self.model.cpu()
-        checkpoint: dict = torch.load(checkPointPath)
-        self.model.load_state_dict(checkpoint['model'])
+    def loadCheckpoint(self, checkPointPath: str) -> dict:
+        checkpoint = super().loadCheckpoint(checkPointPath)
         self.lr = checkpoint['lr']
-        self.model = self.model.to(self.device)
         self.optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, self.model.parameters()), lr=self.lr, momentum=0.9)
         self.epoch = checkpoint['epoch']
         if checkpoint['optimizer'] is not None:
             self.optimizer.load_state_dict(checkpoint['optimizer'])
             self.bestLoss = checkpoint['bestLoss']
-        del checkpoint
+        return checkpoint
     
     def updateLearningRate(self) -> None:
         if self.epoch % 250 == 0:
@@ -135,7 +117,7 @@ class Darknet3Trainer:
         print('\nmAP Per Class:')
         for i in range(self.classCount):
             if AP_accum_count[i]:
-                print('%04d: %-.4f' % (i, AP_accum[i] / (AP_accum_count[i])))
+                print('%15s: %-.4f' % (self.names[i], AP_accum[i] / (AP_accum_count[i])))
         return mean_P, mean_R, mean_mAP
 
     def _trainEpoch(self, save: bool = True) -> None: # largly derived from train.py in https://github.com/ultralytics/yolov3/tree/v3.0 
@@ -146,18 +128,14 @@ class Darknet3Trainer:
         ui = -1
         t = time()
         for i, (images, targets, _) in enumerate(self.data):
-            # print(time() - t)
             targetCount: int = targets.shape[0]
             if targetCount == 0:
                 continue
             if (self.epoch == 1) and (i <= self.nBurnIn):
                 self.lr = self.lr0 * ((i + 1) / self.nBurnIn) ** 4
                 self.updateLearningRate()
-            # t = time()
             targets = targets.to(self.device)
             images = images.to(self.device)
-            # print(time() - t)
-            # t = time()
             prediction: list[Tensor] = self.model(images)
             targetList = build_targets(self.yolos, targets, prediction)
             loss, loss_dict = compute_loss(prediction, targetList)
@@ -200,8 +178,8 @@ class Darknet3Trainer:
 if __name__ == '__main__':
     infoPath = os.path.join('.', 'cfg', 'obj.data')
     dt = Darknet3Trainer(infoPath)
-    # dt.loadCheckpoint(dt.latestWeightsPath)
+    dt.loadCheckpoint(dt.latestWeightsPath)
     # dt.loadCheckpoint(dt.bestWeightsPath)
-    # dt.test(1)
+    dt.test(12)
     while True:
         dt.trainThenTest(1, 12, 200)

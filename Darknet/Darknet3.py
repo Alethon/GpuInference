@@ -8,7 +8,7 @@ from Darknet.ResidualBlocks import *
 from Darknet.Layers import *
 
 from Darknet.YOLOv3 import *
-from models import YOLOLayer
+# from models import YOLOLayer
 
 class DarknetTiny3(nn.Module):
     def __init__(self, nC: int, scale: float = 1.0) -> None:
