@@ -31,3 +31,4 @@ Lego/segments/*
 screwdriver
 models.py
 results.txt
+*.png
