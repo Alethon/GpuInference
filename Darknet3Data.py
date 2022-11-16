@@ -366,10 +366,10 @@ class LegoData:
         self.segmentCount: int = len(self.segments)
         self.batchCount: int = 0
 
-        dummyImagePath: str = './coco'
-        with open(os.path.join(dummyImagePath, 'trainvalno5k.txt'), 'r') as f:
-            self.dummyImagePaths: list[str] = [os.path.join(dummyImagePath, x.strip()) for x in f.readlines()]
-        self.dummyImageCount: int = len(self.dummyImagePaths)
+        # dummyImagePath: str = './coco'
+        # with open(os.path.join(dummyImagePath, 'trainvalno5k.txt'), 'r') as f:
+        #     self.dummyImagePaths: list[str] = [os.path.join(dummyImagePath, x.strip()) for x in f.readlines()]
+        # self.dummyImageCount: int = len(self.dummyImagePaths)
 
     def __len__(self):
         return self.batchCount

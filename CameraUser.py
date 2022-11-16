@@ -56,7 +56,8 @@ class CameraUser(DetectionIterable):
         return frame, image, predictions
 
 if __name__ == '__main__':
-    cu = CameraUser(0)
+    # cu = CameraUser(0)
+    cu = CameraUser('rtsp://192.168.117.59:8554/unicast')
     for frame, image, predictions in cu:
         continue
         

@@ -180,6 +180,6 @@ if __name__ == '__main__':
     dt = Darknet3Trainer(infoPath)
     dt.loadCheckpoint(dt.latestWeightsPath)
     # dt.loadCheckpoint(dt.bestWeightsPath)
-    dt.test(12)
+    # dt.test(12)
     while True:
         dt.trainThenTest(1, 12, 200)
