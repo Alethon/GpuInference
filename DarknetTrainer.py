@@ -182,4 +182,4 @@ if __name__ == '__main__':
     # dt.loadCheckpoint(dt.bestWeightsPath)
     # dt.test(12)
     while True:
-        dt.trainThenTest(1, 12, 200)
+        dt.trainThenTest(3, 12, 200)

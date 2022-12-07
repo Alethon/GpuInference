@@ -72,6 +72,7 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=None):
     tl = line_thickness or round(0.002 * max(img.shape[0:2])) + 1  # line thickness
     color = color or [random.randint(0, 255) for _ in range(3)]
     c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
+    # print(c1, c2)
     cv2.rectangle(img, c1, c2, color, thickness=tl)
     if label:
         tf = max(tl - 1, 1)  # font thickness
@@ -431,17 +432,21 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
             det_max = []
             ind = list(range(len(dc)))
             if nms_style == 'OR':  # default
-                while len(ind):
-                    j = ind[0]
-                    det_max.append(dc[j:j + 1])  # save highest conf detection
-                    reject = bbox_iou(dc[j], dc[ind]) > nms_thres
-                    [ind.pop(i) for i in reversed(reject.nonzero())]
-                # while dc.shape[0]:  # SLOWER METHOD
-                #     det_max.append(dc[:1])  # save highest conf detection
-                #     if len(dc) == 1:  # Stop if we're at the last detection
-                #         break
-                #     iou = bbox_iou(dc[0], dc[1:])  # iou with other boxes
-                #     dc = dc[1:][iou < nms_thres]  # remove ious > threshold
+                # while len(ind):
+                #     j = ind[0]
+                #     det_max.append(dc[j:j + 1])  # save highest conf detection
+                #     reject = bbox_iou(dc[j], dc[ind]) > nms_thres
+                #     print(j)
+                #     print(ind)
+                #     print(reject)
+                #     print(reject.nonzero())
+                #     [ind.pop(i) for i in reversed(reject.nonzero())]
+                while dc.shape[0]:  # SLOWER METHOD
+                    det_max.append(dc[:1])  # save highest conf detection
+                    if len(dc) == 1:  # Stop if we're at the last detection
+                        break
+                    iou = bbox_iou(dc[0], dc[1:])  # iou with other boxes
+                    dc = dc[1:][iou < nms_thres]  # remove ious > threshold
 
                 # Image      Total          P          R        mAP
                 #  4964       5000      0.629      0.594      0.586

@@ -321,7 +321,8 @@ def numpy_to_scaled_tensor(imagesNp: ndarray, device: torch.device, shape: tuple
     return images
 
 class LegoData:
-    ClassMap = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0])
+    ClassMap2 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0])
+    ClassMap3 = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 1.0])
 
     def __init__(self, path: str, shape: tuple[float, float] = (416, 416)) -> None:
         self.basePath: str = path
@@ -339,8 +340,12 @@ class LegoData:
 
         self.labelPaths = [os.path.join(self.labelPath, f) for f in self.labelPaths]
 
-        images: list[ndarray] = [cv2.imread(f) for f in self.imagePaths]
-        self.images: ndarray = np.ascontiguousarray(np.stack(images).transpose(0, 3, 1, 2), dtype=np.float32) / 255.0
+        for f in self.imagePaths:
+            if cv2.imread(f) is None:
+                print(f)
+        images: list[ndarray] = [cv2.imread(f).transpose(2, 0, 1).astype(np.float32) / 255.0 for f in self.imagePaths]
+        images = [F.interpolate(torch.from_numpy(i)[None].cuda(), size=shape).cpu()[0].numpy() for i in images]
+        self.images: ndarray = np.ascontiguousarray(np.stack(images), dtype=np.float32)
         # with torch.no_grad():
         #     self.images: Tensor = torch.from_numpy(imagesNp).cuda()
         #     self.images = F.interpolate(self.images, scale_factor=(self.shape[1] / self.images.shape[-2], self.shape[0] / self.images.shape[-1])).cpu()
@@ -453,9 +458,11 @@ class LegoData:
             imagePaths.append(p)
         
         with torch.no_grad():
-            images = torch.from_numpy(np.stack(imageList)).cuda().float().flip(3).permute(0, 3, 1, 2) / 255.0
-            images = F.interpolate(images, scale_factor=(self.shape[1] / images.shape[-2], self.shape[0] / images.shape[-1]))
-            images = torch.cat([images[x, :, ymins[x]:ymins[x]+self.segmentSize[1], xmins[x]:xmins[x]+self.segmentSize[0]].unsqueeze(0) for x in range(images.shape[0])]).permute(0, 2, 3, 1).cpu().numpy()
+            # images = torch.from_numpy(np.stack(imageList)).cuda().float().permute(0, 3, 1, 2) / 255.0
+            images = [F.interpolate(torch.from_numpy(i)[None].cuda().float().permute(0, 3, 1, 2) / 255.0, size=self.shape) for i in imageList]
+            images = torch.cat(images, 0).permute(0, 2, 3, 1).cpu().numpy()
+            # images = F.interpolate(images, scale_factor=(self.shape[1] / images.shape[-2], self.shape[0] / images.shape[-1]))
+            # images = torch.cat([images[x, :, ymins[x]:ymins[x]+self.segmentSize[1], xmins[x]:xmins[x]+self.segmentSize[0]].unsqueeze(0) for x in range(images.shape[0])]).permute(0, 2, 3, 1).cpu().numpy()
             # images = torch.cat([images[x, :, ymins[x]:ymins[x]+self.segmentSize[1], xmins[x]:xmins[x]+self.segmentSize[0]].unsqueeze(0) for x in range(images.shape[0])]).cpu()
 
         for i in range(len(labelList)):
@@ -480,7 +487,7 @@ class LegoData:
             images = torch.from_numpy(images).cuda().permute(0, 3, 1, 2).cpu()
         
         labels: ndarray = np.concatenate(labelList, 0)
-        # labels[:, 1] = LegoData.ClassMap[labels[:, 1].astype(np.int32)]
+        # labels[:, 1] = LegoData.ClassMap2[labels[:, 1].astype(np.int32)]
 
         return images, torch.from_numpy(labels), imagePaths
 
